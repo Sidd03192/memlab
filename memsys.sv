@@ -1,0 +1,119 @@
+`timescale 1ns/1ps
+
+//==============================================================================
+// MEMORY SUBSYSTEM - Top Level Module
+//==============================================================================
+// This module instantiates and connects:
+//   1. LSQ            - Load-Store Queue (16 entries)
+//   2. TLB            - Translation Lookaside Buffer (16 entries)
+//   3. L1 Cache       - PIVT, 512B, 2-way, 2 MSHRs
+//   4. L2 Cache       - PIPT, 4KB, 4-way, 4 MSHRs
+//   5. Memory         - Interface to physical memory (array or DRAM)
+//
+// Trace parsing is done inline (no separate module needed).
+//==============================================================================
+
+module memory_subsystem #(
+    parameter VA_WIDTH      = 48,       
+    parameter PA_WIDTH      = 30,       
+    parameter DATA_WIDTH    = 64,      
+    parameter BLOCK_SIZE    = 64,       
+
+    // Trace parameters
+    parameter TRACE_WIDTH   = 121,      
+
+    // Component sizes
+    parameter LSQ_ENTRIES   = 16,
+    parameter TLB_ENTRIES   = 16,
+    parameter L1_CAPACITY   = 512,      
+    parameter L1_WAYS       = 2,
+    parameter L1_MSHRS      = 2,
+    parameter L2_CAPACITY   = 4096,     
+    parameter L2_WAYS       = 4,
+    parameter L2_MSHRS      = 4
+)(
+    input  logic                        clk,
+    input  logic                        rst_n,
+
+    
+    // TRACE INPUT 
+    
+    input  logic [TRACE_WIDTH-1:0]      trace_data,
+    input  logic                        trace_valid,
+    output logic                        trace_ready,
+
+    
+    // MEMORY INTERFACE
+    output logic                        mem_req_valid,
+    output logic                        mem_req_is_write,
+    output logic [PA_WIDTH-1:0]         mem_req_addr,
+    output logic [BLOCK_SIZE*8-1:0]     mem_req_wdata,  // Full cache line
+    input  logic                        mem_req_ready,
+    input  logic                        mem_resp_valid,
+    input  logic [BLOCK_SIZE*8-1:0]     mem_resp_rdata,
+
+);
+    
+    // Trace format (121 bits):
+    //   [120]     - trace_value_valid (stores only)
+    //   [119:56]  - trace_value (64-bit store data)
+    //   [55]      - trace_vaddr_valid
+    //   [54:52]   - trace_op (operation type)
+    //   [51:48]   - trace_id (4-bit operation ID)
+    //   [47:0]    - trace_vaddr (48-bit virtual address)
+    //   [85:56]   - trace_tlb_paddr (for TLB_FILL only, 30-bit physical addr)
+    
+
+    // Operation types
+    localparam [2:0] OP_MEM_LOAD    = 3'd0;
+    localparam [2:0] OP_MEM_STORE   = 3'd1;
+    localparam [2:0] OP_MEM_RESOLVE = 3'd2;
+    localparam [2:0] OP_TLB_FILL    = 3'd4;
+
+    // input wires for LSQ From trace. 
+    wire [2:0]              trace_op          = trace_data[54:52];
+    wire [3:0]              trace_id          = trace_data[51:48];
+    wire [VA_WIDTH-1:0]     trace_vaddr       = trace_data[47:0];
+    wire                    trace_vaddr_valid = trace_data[55];
+    wire [DATA_WIDTH-1:0]   trace_value       = trace_data[119:56];
+    wire                    trace_value_valid = trace_data[120];
+    wire [PA_WIDTH-1:0]     trace_tlb_paddr   = trace_data[85:56];
+
+    // Determine operation type
+    wire is_load    = (trace_op == OP_MEM_LOAD);
+    wire is_store   = (trace_op == OP_MEM_STORE);
+    wire is_resolve = (trace_op == OP_MEM_RESOLVE);
+    wire is_tlb_fill = (trace_op == OP_TLB_FILL);
+    wire is_mem_op  = is_load || is_store || is_resolve;
+
+    // Route to LSQ or TLB based on operation type
+    wire lsq_trace_valid  = trace_valid && is_mem_op;
+    wire tlb_fill_valid   = trace_valid && is_tlb_fill;
+
+  
+    lsq #(
+        .NUM_ENTRIES    (LSQ_ENTRIES),
+        .VA_WIDTH       (VA_WIDTH),
+        .DATA_WIDTH     (DATA_WIDTH),
+        .ID_WIDTH       (4)
+    ) u_lsq (
+        .clk                (clk),
+        .rst_n              (rst_n),
+
+        // Trace inputs
+        .trace_valid        (lsq_trace_valid),
+        .trace_op           (trace_op),
+        .trace_id           (trace_id),
+        .trace_vaddr        (trace_vaddr),
+        .trace_vaddr_valid  (trace_vaddr_valid),
+        .trace_value        (trace_value),
+        .trace_value_valid  (trace_value_valid),
+        .trace_ready        (lsq_trace_ready),
+
+
+    );
+
+ 
+
+endmodule
+
