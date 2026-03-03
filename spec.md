@@ -12,7 +12,7 @@ Your memory hierarchy consists of the following components.
 
 A combined load-store queue (LSQ) with 16 entries.
 "Combined" means that there is a single hardware buffer which contains both loads and stores.
-A PIVT non-blocking write-back L1 data cache.
+A VIPT non-blocking write-back L1 data cache.
 2 MSHRs, 512B capacity, 2-way, 2-cycle latency.
 A PIPT non-blocking write-back L2 data cache .
 4 MSHRs, 4KiB capacity, 4-way, 5-cycle latency.

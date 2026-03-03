@@ -60,7 +60,7 @@ module memory_subsystem #(
     //   [55]      - trace_vaddr_valid
     //   [54:52]   - trace_op (operation type)
     //   [51:48]   - trace_id (4-bit operation ID)
-    //   [47:0]    - trace_vaddr (48-bit virtual address)
+    //   [47:0]    -  (48-bit virtual address)
     //   [85:56]   - trace_tlb_paddr (for TLB_FILL only, 30-bit physical addr)
     
 
@@ -73,7 +73,7 @@ module memory_subsystem #(
     // input wires for LSQ From trace. 
     wire [2:0]              trace_op          = trace_data[54:52];
     wire [3:0]              trace_id          = trace_data[51:48];
-    wire [VA_WIDTH-1:0]     trace_vaddr       = trace_data[47:0];
+    wire [VA_WIDTH-1:0]            = trace_data[47:0];
     wire                    trace_vaddr_valid = trace_data[55];
     wire [DATA_WIDTH-1:0]   trace_value       = trace_data[119:56];
     wire                    trace_value_valid = trace_data[120];
@@ -83,12 +83,12 @@ module memory_subsystem #(
     wire is_load    = (trace_op == OP_MEM_LOAD);
     wire is_store   = (trace_op == OP_MEM_STORE);
     wire is_resolve = (trace_op == OP_MEM_RESOLVE);
+    // for TLB 
     wire is_tlb_fill = (trace_op == OP_TLB_FILL);
     wire is_mem_op  = is_load || is_store || is_resolve;
 
     // Route to LSQ or TLB based on operation type
     wire lsq_trace_valid  = trace_valid && is_mem_op;
-    wire tlb_fill_valid   = trace_valid && is_tlb_fill;
 
   
     lsq #(
@@ -113,6 +113,20 @@ module memory_subsystem #(
 
     );
 
+    tlb #(
+        .TLB_ENTRIES(TLB_ENTRIES)
+        u_tlb(
+            .clk (clk),
+            .rst_n(rst_n),
+            
+            // if tlb trace
+            .is_tlb_fill(is_tlb_fill),
+            .vaddr(trace_vaddr),
+            .paddr(trace_tlb_paddr),
+            .ready()
+
+        )
+    )
  
 
 endmodule
