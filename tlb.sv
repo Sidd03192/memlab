@@ -8,7 +8,7 @@ module tlb (
     input  logic        start,
 
     output logic        ready, // ready out
-    output logic        valid,
+    output logic        valid, // tells l1 if we have an output. 
     output logic [29:0] result_paddr,
     output logic        panic_tlb_miss
 );
@@ -71,7 +71,7 @@ module tlb (
                 end
             end
     
-            valid <= 1;
+            valid <= ~is_tlb_fill; // tell l1 if we have an output
         end else begin
             ready <= 1;
             valid <= 0;

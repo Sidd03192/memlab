@@ -50,8 +50,7 @@ module memory_subsystem #(
     output logic [BLOCK_SIZE*8-1:0]     mem_req_wdata,  // Full cache line
     input  logic                        mem_req_ready,
     input  logic                        mem_resp_valid,
-    input  logic [BLOCK_SIZE*8-1:0]     mem_resp_rdata,
-
+    input  logic [BLOCK_SIZE*8-1:0]     mem_resp_rdata
 );
     
     // Trace format (121 bits):
@@ -73,7 +72,7 @@ module memory_subsystem #(
     // input wires for LSQ From trace. 
     wire [2:0]              trace_op          = trace_data[54:52];
     wire [3:0]              trace_id          = trace_data[51:48];
-    wire [VA_WIDTH-1:0]            = trace_data[47:0];
+    wire [VA_WIDTH-1:0]     trace_vaddr      = trace_data[47:0];
     wire                    trace_vaddr_valid = trace_data[55];
     wire [DATA_WIDTH-1:0]   trace_value       = trace_data[119:56];
     wire                    trace_value_valid = trace_data[120];
@@ -89,8 +88,28 @@ module memory_subsystem #(
 
     // Route to LSQ or TLB based on operation type
     wire lsq_trace_valid  = trace_valid && is_mem_op;
+    // TLB Signals
+    logic tlb_start;
+    logic tlb_ready;
+    logic tlb_valid;
+    logic [PA_WIDTH-1:0] tlb_result_paddr;
+    logic tlb_panic_miss;
+    assign tlb_start = trace_valid && is_tlb_fill;
+
+    //lsq
+    logic                       l1_busy_to_lsq;
+    logic [VA_WIDTH-1:0]        lsq_vaddr_to_l1;
+    logic                       lsq_valid_to_l1;
+    logic                       lsq_is_write_to_l1;
+    logic [DATA_WIDTH-1:0]      lsq_wdata_to_l1;
+    logic                       l1_resp_valid_to_lsq;
+    logic [DATA_WIDTH-1:0]      l1_resp_rdata_to_lsq;
+
 
   
+
+
+
     lsq #(
         .NUM_ENTRIES    (LSQ_ENTRIES),
         .VA_WIDTH       (VA_WIDTH),
@@ -110,23 +129,57 @@ module memory_subsystem #(
         .trace_value_valid  (trace_value_valid),
         .trace_ready        (lsq_trace_ready),
 
+        // Outputs to L1 (use actual LSQ port names)
+        .l1_req_valid       (lsq_valid_to_l1),
+        .l1_req_is_write    (lsq_is_write_to_l1),
+        .l1_req_vaddr       (lsq_vaddr_to_l1),
+        .l1_req_wdata       (lsq_wdata_to_l1),
 
+        // Input from L1
+        .l1_req_ready       (~l1_busy_to_lsq), // if stall 
+        // .l1_resp_valid      (l1_resp_valid_to_lsq),
+        // .l1_resp_rdata      (l1_resp_rdata_to_lsq)
     );
 
-    tlb #(
-        .TLB_ENTRIES(TLB_ENTRIES)
-        u_tlb(
-            .clk (clk),
-            .rst_n(rst_n),
-            
-            // if tlb trace
-            .is_tlb_fill(is_tlb_fill),
-            .vaddr(trace_vaddr),
-            .paddr(trace_tlb_paddr),
-            .ready()
+    tlb u_tlb (
+        .clk            (clk),
+        .rst_n          (rst_n),
 
-        )
-    )
+        .start          (tlb_start),
+        .is_tlb_fill    (is_tlb_fill),
+
+        // inputs
+        .vaddr          (trace_vaddr),
+        .paddr          (trace_tlb_paddr),
+
+        // Outputs
+        .ready          (tlb_ready),
+        .valid          (tlb_valid),
+        .result_paddr   (tlb_result_paddr),
+        .panic_tlb_miss (tlb_panic_miss)
+    );
+    l1_cache #(
+        .L1_CAPACITY    (L1_CAPACITY),
+        .L1_WAYS        (L1_WAYS)
+    ) u_l1 (
+        .clk            (clk),
+        .rst_n          (rst_n),
+
+        // From TLB
+        .start_tag      (tlb_valid),
+        .tlb_paddr      (tlb_result_paddr),
+
+        // From LSQ
+        .start_index    (lsq_valid_to_l1),
+        .trace_vaddr    (lsq_vaddr_to_l1),
+        .is_write       (lsq_is_write_to_l1),
+        .wdata          (lsq_wdata_to_l1),
+
+        // To LSQ
+        .isfull         (l1_busy_to_lsq),
+        // .resp_valid     (l1_resp_valid_to_lsq),
+        // .resp_rdata     (l1_resp_rdata_to_lsq)
+    );
  
 
 endmodule
