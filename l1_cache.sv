@@ -104,7 +104,7 @@ module l1_cache #(
                     state         <= 3'd1;
                       
                 end
-                // if MSHR set that stuff and go to state 3. 
+                // if MSHR not full set that stuff and go to state 3. 
 
             end
 
@@ -146,25 +146,79 @@ endmodule
 
 
 
-/*
-    states:
-        0 - Empty
-        1 - Pending Resolution
-        2 - Pending Eviction
-*/
-module MSHR #(
-    parameter PADDR_LEN         = 48
-)(
-    input   logic                           miss,
-    input   logic[PADDR_LEN-1:0]            paddr,
-    input   logic                           resolve,
-    input   logic[BLOCKBLOCK_SIZE*8-1:0]    data_in,
-    output  logic                           empty,
-    output  logic[BLOCKBLOCK_SIZE*8-1:0]    data_out,
-    output  logic                           pending_resolution,
-    output  logic                           valid_out
-)
+module mshr_entry # 
+(
+    parameter PA_WIDTH          = 30,
+    parameter DATA_WIDTH        = 64,
+    parameter BLOCK_SIZE        = 64,
+    parameter INDEX_BITS        = 2,
+    parameter TAG_SIZE          = 24,
+    parameter QUEUE_DEPTH       = 4
     
+)(
+    input logic clk,
+    input logic rest_n
 
+    // allocate from l1 on miss
+    input logic l1_alloc,
+    input logic l1_is_write,
+    input logic [PA_WIDTH-1:0] l1_alloc_paddr,
+    input logic [DATA_WIDTH -1:0] l1_w_data,
+
+    input logic l1_acknowledge, // l1 has dealt with an entry and we can clear it
+    
+    // ouputs to 1l (status) 
+    output logic full, // no more emtpy slots
+    output logic entry_ready, 
+    output logic [PA_WIDTH-1:0] entry_paddr,
+    output logic entry_is_write
+    output logic [DATA_WIDTH-1:0]       l1_ready_wdata,     // Store data to apply
+    output logic [BLOCK_SIZE*8-1:0]     l1_ready_block,     // Block data from L2
+
+)
+    parameter NUM_MSHR = 2;
+
+    // States
+    localparam IDLE      = 2'b00;
+    localparam WAIT_MEM  = 2'b01;
+    localparam WAIT_DATA = 2'b10;
+    localparam READY     = 2'b11;
+
+    
+    // Data per slot
+    logic [PA_WIDTH-1:0]        slot_paddr    [NUM_MSHR];
+    logic                       slot_is_write [NUM_MSHR];
+    logic [DATA_WIDTH-1:0]      slot_wdata    [NUM_MSHR];
+    logic [BLOCK_SIZE*8-1:0]    slot_block    [NUM_MSHR];
+    logic [1:0] slot_state [NUM_MSHR];
+
+    logic [NUM_MSHR]ready_slot; // what we decide to show to l1 as ready
+
+// auto set full TODO: CHECK if this works
+always_comb begin
+        full = 1'b1;
+        for (int i=0; i<NUM_MSHR; i++) if (slot_state[i] == IDLE) full = 1'b0;
+    end
+
+always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (int i=0; i<NUM_MSHR; i++) slot_state[i] <= IDLE;
+        end else begin
+            // 1. find free slot and alloc 
+            if (l1_alloc && !full) begin
+                for (int i=0; i<NUM_MSHR; i++) begin
+                    if (slot_state[i] == IDLE) begin
+                        slot_state[i]    <= WAIT_MEM;
+                        slot_paddr[i]    <= l1_alloc_paddr;
+                        slot_is_write[i] <= l1_is_write;
+                        slot_wdata[i]    <= l1_w_data;
+                        break; 
+                    end
+                end
+            end
+
+            // need to handle litteraly everythign else. 
+        end
+    end
 
 endmodule
