@@ -187,7 +187,13 @@ end
                 mshr_install_done = 1'b0;
                 for (integer i = 0; i < NUM_MSHRS; i++) begin
                     if (!mshr_install_done && mshr_state[i] == MS_RESOLVED) begin
-                        evict_way_l = lru[mshr_index[i]];
+                        // se if anything invalid / do lru 
+                        if (!set_valids[mshr_index[i]][0])
+                            evict_way_l = 1'b0;
+                        else if (!set_valids[mshr_index[i]][1])
+                            evict_way_l = 1'b1;
+                        else
+                            evict_way_l = lru[mshr_index[i]];
 
                         if (set_dirty[mshr_index[i]][evict_way_l] && set_valids[mshr_index[i]][evict_way_l]) begin
                             wb_valid <= 1'b1;
@@ -205,7 +211,7 @@ end
                     end
                 end
 
-
+                // start doing lsq request. 
                 if (start_index) begin
                     curr_index    <= trace_vaddr[7:6];
                     curr_is_write <= is_write;
@@ -214,7 +220,6 @@ end
                       
                 end
 
-                
             end
 
             3'd1: begin  // tag wait

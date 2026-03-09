@@ -88,6 +88,7 @@ module memory_subsystem #(
 
     // Route to LSQ or TLB based on operation type
     wire lsq_trace_valid  = trace_valid && is_mem_op;
+    logic lsq_trace_ready;
     // TLB Signals
     logic tlb_start;
     logic tlb_ready;
@@ -104,6 +105,23 @@ module memory_subsystem #(
     logic [DATA_WIDTH-1:0]      lsq_wdata_to_l1;
     logic                       l1_resp_valid_to_lsq;
     logic [DATA_WIDTH-1:0]      l1_resp_rdata_to_lsq;
+
+    // L1 <-> L2 signals. L2 is not implemented in this file yet, so the
+    // response/ack side is tied idle and the request side is left internal.
+    logic                       l1_l2_wb_valid;
+    logic [PA_WIDTH-1:0]        l1_l2_wb_paddr;
+    logic [BLOCK_SIZE*8-1:0]    l1_l2_wb_data;
+    logic                       l2_l1_wb_ack;
+    logic                       l1_l2_req_valid;
+    logic [PA_WIDTH-1:0]        l1_l2_req_paddr;
+    logic                       l2_l1_data_valid;
+    logic [PA_WIDTH-1:0]        l2_l1_data_paddr;
+    logic [BLOCK_SIZE*8-1:0]    l2_l1_data;
+
+    assign l2_l1_wb_ack    = 1'b0;
+    assign l2_l1_data_valid = 1'b0;
+    assign l2_l1_data_paddr = '0;
+    assign l2_l1_data       = '0;
 
 
   
@@ -136,7 +154,7 @@ module memory_subsystem #(
         .l1_req_wdata       (lsq_wdata_to_l1),
 
         // Input from L1
-        .l1_req_ready       (~l1_busy_to_lsq), // if stall 
+        .l1_req_ready       (~l1_busy_to_lsq) // if stall
         // .l1_resp_valid      (l1_resp_valid_to_lsq),
         // .l1_resp_rdata      (l1_resp_rdata_to_lsq)
     );
@@ -174,9 +192,21 @@ module memory_subsystem #(
         .trace_vaddr    (lsq_vaddr_to_l1),
         .is_write       (lsq_is_write_to_l1),
         .wdata          (lsq_wdata_to_l1),
-
+ 
         // To LSQ
-        .isfull         (l1_busy_to_lsq),
+        .l1_stall_out_to_lsq (l1_busy_to_lsq),
+ 
+        // To / From L2
+        .l2_wb_valid    (l1_l2_wb_valid),
+        .l2_wb_paddr    (l1_l2_wb_paddr),
+        .l2_wb_data     (l1_l2_wb_data),
+        .l2_wb_ack      (l2_l1_wb_ack),
+        .l2_req_valid   (l1_l2_req_valid),
+        .l2_req_paddr   (l1_l2_req_paddr),
+        .l2_data_valid  (l2_l1_data_valid),
+        .l2_data_paddr  (l2_l1_data_paddr),
+        .l2_data        (l2_l1_data)
+
         // .resp_valid     (l1_resp_valid_to_lsq),
         // .resp_rdata     (l1_resp_rdata_to_lsq)
     );

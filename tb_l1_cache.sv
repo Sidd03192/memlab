@@ -285,10 +285,22 @@ module tb_l1_cache;
         @(negedge clk);
         check_bit(0, "T7 set_dirty[0][0]==1 after store hit", dut.set_dirty[0][0], 1'b1);
 
-        // Bring in a new block at index=0 with different tag -> evicts dirty line
+        // Bring in a new block at index=0 with different tag.
+        // Since this is a 2-way cache and way 1 is still invalid, this should
+        // fill the empty way and not trigger a writeback yet.
         send_request(VADDR_F, PADDR_F, 1'b0, 64'h0);
         @(negedge clk);
         l2_respond(PADDR_F, BLOCK_F);
+        @(negedge clk); @(negedge clk);
+
+        check_bit(0, "T7 no wb when filling empty way", l2_wb_valid, 1'b0);
+
+        // One more miss to the same set forces a real eviction.
+        // A should now be the LRU victim and since it is dirty we should see
+        // a writeback for PADDR_A.
+        send_request(VADDR_E, PADDR_E, 1'b0, 64'h0);
+        @(negedge clk);
+        l2_respond(PADDR_E, 512'hEE);
         @(negedge clk); @(negedge clk);
 
         check_bit(0, "T7 l2_wb_valid==1 after dirty evict", l2_wb_valid, 1'b1);
