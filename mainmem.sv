@@ -57,7 +57,11 @@ module mainmem #(
     output logic                        stall_out
 );
 
-    assign stall_out = ~|empty_out;
+    always_comb begin
+        stall_out = 1'b1;
+        for (int i = 0; i < L2_MSHRS; i++)
+            if (empty_out[i]) stall_out = 1'b0;
+    end
 
     localparam int OFFSET_BITS  = $clog2(BLOCK_SIZE);
     localparam int DEPTH_BITS   = $clog2(SIM_DEPTH);

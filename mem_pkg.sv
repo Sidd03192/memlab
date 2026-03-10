@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 package mem_pkg;
     // Define the Operations
     typedef enum logic [2:0] {
