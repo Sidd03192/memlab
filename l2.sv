@@ -84,15 +84,28 @@ module l2_cache #(
         end
     end
 
+    logic[TAG_BITS-1:0]     e_tag;
+    logic[INDEX_BITS-1:0]   e_index;
+    assign                  e_tag = e_paddr_in[PA_WIDTH-1:PA_WIDTH-TAG_BITS];
+    assign                  e_index = e_paddr_in[OFFSET_BITS+INDEX_BITS-1:OFFSET_BITS];
+
     logic                   hit;
     logic[WAY_BITS-1:0]     hit_way;
+    logic                   e_hit;
+    logic[WAY_BITS-1:0]     e_hit_way;
     always_comb begin
         hit = 0;
         hit_way = '0;
+        e_hit = 0;
+        e_hit_way = '0;
         for (int w = 0; w < L1_WAYS; w++) begin
-            if (valids[miss_tag][w] && tags[miss_tag][w] == miss_tag) begin
+            if (valids[miss_index][w] && tags[miss_index][w] == miss_tag) begin
                 hit = 1;
                 hit_way = w[WAY_BITS-1:0];
+            end
+            if (valid[e_index][w] && tags[e_index][w] == e_tag) begin
+                e_hit = 1;
+                e_hit_way = w[WAY_BITS-1:0];
             end
         end
     end
@@ -135,8 +148,16 @@ module l2_cache #(
             // reset out signals
             resolve_out = '0;
 
-
-            // process l1 eviction buffer
+            if (evict_in) begin
+                // process l1 eviction buffer
+                if (e_hit) begin
+                    if (e_dirty_in) begin
+                        contents[e_index][e_hit_way] = e_data_in;
+                    end
+                end else begin
+                    // shouldn't happen
+                end
+            end
 
             // process l1 request
             if (miss) begin
