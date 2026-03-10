@@ -57,14 +57,14 @@ module l2_cache #(
     logic [L2_WAYS-1:0]       set_valids   [L2_SETS];
     logic [L2_WAYS-1:0]       set_dirty    [L2_SETS];
 
-    // 4 way n^2 matrix for each set. 
-    logic [L2_WAYS-1:0][L2_WAYS-1:0] lru_matrix [L2_SETS];
+    // 4 way n^2 matrix for each set (fully unpacked for iverilog)
+    logic lru_matrix [L2_SETS][L2_WAYS][L2_WAYS];
 
     // MSHRs
     logic [1:0]              mshr_state      [NUM_MSHRS];
     logic [PA_WIDTH-1:0]     mshr_paddr      [NUM_MSHRS];
-    logic                    mshr_mem_issued [NUM_MSHRS];
     logic [BLOCK_SIZE*8-1:0] mshr_block      [NUM_MSHRS];
+    logic                    mshr_issued_one;
 
     // Writeback queue fifo to memory
     localparam int WB_DEPTH = NUM_MSHRS;
@@ -104,14 +104,11 @@ module l2_cache #(
     assign wb_tag_in   = l1_wb_paddr[PA_WIDTH-1 -: TAG_SIZE];
 
     logic                          wb_hit;
-    logic [$clog2(L2_WAYS)-1:0]   wb_hit_way;
-    logic [$clog2(L2_WAYS)-1:0]   wb_victim_way;
+    logic [$clog2(L2_WAYS)-1:0]    wb_hit_way;
+    logic [$clog2(L2_WAYS)-1:0]    wb_victim_way;
     logic                          wb_found_invalid;
     logic                          wb_victim_dirty;
     logic                          wb_is_lru;
-
-    logic [$clog2(L2_WAYS)-1:0] wb_hit_way;
-    logic [$clog2(L2_WAYS)-1:0] wb_victim_way;
 
 
     // MSHR temps
@@ -125,8 +122,31 @@ module l2_cache #(
 
 
     
-    logic [2:0] states;
+   //-------------------------------------------------------------
+   // handle assiging ouput for next thing we ant mem to do 
 
+        always_comb begin
+            mem_req_valid    = 1'b0;
+            mem_req_is_write = 1'b0;
+            mem_req_addr     = '0;
+            mem_req_wdata    = '0;
+
+            if (!wb_empty) begin // give it wb , if thats emtpy then do mshr 
+                mem_req_valid    = 1'b1;
+                mem_req_is_write = 1'b1;
+                mem_req_addr     = wb_paddr_q[wb_head];
+                mem_req_wdata    = wb_data_q[wb_head];
+            end else begin
+                for (int i = 0; i < NUM_MSHRS; i++) begin
+                    if (mshr_state[i] == MS_UNRESOLVED && !mem_req_valid) begin
+                        mem_req_valid = 1'b1;
+                        mem_req_addr  = mshr_paddr[i];
+                    end
+                end
+            end
+        end
+
+   //-------------------------------------------------------------
 
 //-------------------------------------------------------------
     // Sequential block
@@ -140,14 +160,15 @@ module l2_cache #(
             for (int i = 0; i < L2_SETS; i++) begin
                 set_valids[i] <= '0;
                 set_dirty[i]  <= '0;
-                lru_matrix[i] <= '0;
+                for (int r = 0; r < L2_WAYS; r++)
+                    for (int c = 0; c < L2_WAYS; c++)
+                        lru_matrix[i][r][c] <= 1'b0;
             end
 
             // Reset MSHRs
             for (int i = 0; i < NUM_MSHRS; i++) begin
                 mshr_state[i]      <= MS_IDLE;
                 mshr_paddr[i]      <= '0;
-                mshr_mem_issued[i] <= 1'b0;
                 mshr_block[i]      <= '0;
             end
 
@@ -342,66 +363,47 @@ module l2_cache #(
                         lru_matrix[req_index][i][req_hit_way] <= 1'b0;
                     end
                 end
-                //TODO: Handle duplicate entries / do a queueu
                 else begin
-                    // miss — allocate MSHR
+                    // miss — check for duplicate, then allocate MSHR
+                    mshr_dup = 1'b0;
                     mshr_full_l2 = 1'b1;
                     mshr_free_idx = '0;
 
                     for (int i = 0; i < NUM_MSHRS; i++) begin
+                        // duplicate check: already tracking this address
+                        if (mshr_state[i] != MS_IDLE && mshr_paddr[i] == l1_req_paddr)
+                            mshr_dup = 1'b1;
+                        // find first free slot
                         if (mshr_state[i] == MS_IDLE && mshr_full_l2) begin
                             mshr_full_l2 = 1'b0;
                             mshr_free_idx = i[$clog2(NUM_MSHRS)-1:0];
                         end
                     end
 
-                    if (!mshr_full_l2) begin
+                    if (!mshr_dup && !mshr_full_l2) begin
                         mshr_state[mshr_free_idx] <= MS_UNRESOLVED;
                         mshr_paddr[mshr_free_idx] <= l1_req_paddr;
                     end
-                    // IF we full then dont send ack for the MSHR and keep it unresolve.d 
+                    // if dup: already in flight, L1 will get data when MSHR resolves
+                    // if full: L1 must retry
                 end
             end
 
 
-
-
-
-
-
+            // hnadle updating after mem responds. 
+            if (mem_req_valid && mem_req_ready) begin
+                if (mem_req_is_write) begin
+                    wb_pop = 1'b1;
+                end else begin
+                    mshr_issued_one = 1'b0;
+                    for (int i = 0; i < NUM_MSHRS; i++) begin
+                        if (mshr_state[i] == MS_UNRESOLVED && !mshr_issued_one) begin
+                            mshr_state[i] <= MS_WAIT_MEM;
+                            mshr_issued_one = 1'b1;
+                        end
+                    end
+                end
             end
-
-            
-
-
-
-
-
-            // ---- Priority 1: Capture memory response into matching MSHR ----
-            // TODO: match mem_resp_paddr to MSHR, save block, move to MS_RESOLVED
-
-
-            // ---- Priority 2: Install one resolved MSHR into cache ----
-            // TODO: pick resolved MSHR, choose victim way (invalid first, then LRU)
-            //       if victim dirty, push to wb FIFO
-            //       install block, update tag/valid/dirty/lru
-            //       return block to L1 via l1_data_valid
-            //       free MSHR
-
-            // ---- Priority 3: Accept one L1 writeback ----
-            // TODO: if l1_wb_valid, lookup hit/miss in L2
-            //       hit:  overwrite line, set dirty, update LRU, ack
-            //       miss: pick victim, evict if dirty, install, ack
-
-            // ---- Priority 4: Process one L1 miss request ----
-            // TODO: if l1_req_valid, lookup hit/miss in L2
-            //       hit:  return line to L1 immediately
-            //       miss: check duplicate MSHR, allocate if free
-
-            // ---- Priority 5: Issue one memory request (handled combinationally above) ----
-            // TODO: on mem_req_valid && mem_req_ready:
-            //       if writeback: pop FIFO
-            //       if read: move MSHR to MS_WAIT_MEM
 
             // ---- Writeback FIFO pointer update ----
             if (wb_pop && !wb_push) begin

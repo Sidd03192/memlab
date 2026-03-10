@@ -28,7 +28,7 @@ module memory_subsystem #(
     parameter L1_CAPACITY   = 512,      
     parameter L1_WAYS       = 2,
     parameter L1_MSHRS      = 2,
-    parameter L2_CAPACITY   = \,     
+    parameter L2_CAPACITY   = 4096,     
     parameter L2_WAYS       = 4,
     parameter L2_MSHRS      = 4
 )(
@@ -50,6 +50,7 @@ module memory_subsystem #(
     output logic [BLOCK_SIZE*8-1:0]     mem_req_wdata,  // Full cache line
     input  logic                        mem_req_ready,
     input  logic                        mem_resp_valid,
+    input  logic [PA_WIDTH-1:0]         mem_resp_paddr,
     input  logic [BLOCK_SIZE*8-1:0]     mem_resp_rdata
 );
     
@@ -106,8 +107,7 @@ module memory_subsystem #(
     logic                       l1_resp_valid_to_lsq;
     logic [DATA_WIDTH-1:0]      l1_resp_rdata_to_lsq;
 
-    // L1 <-> L2 signals. L2 is not implemented in this file yet, so the
-    // response/ack side is tied idle and the request side is left internal.
+    // L1 <-> L2 signals.
     logic                       l1_l2_wb_valid;
     logic [PA_WIDTH-1:0]        l1_l2_wb_paddr;
     logic [BLOCK_SIZE*8-1:0]    l1_l2_wb_data;
@@ -117,16 +117,6 @@ module memory_subsystem #(
     logic                       l2_l1_data_valid;
     logic [PA_WIDTH-1:0]        l2_l1_data_paddr;
     logic [BLOCK_SIZE*8-1:0]    l2_l1_data;
-
-    assign l2_l1_wb_ack    = 1'b0;
-    assign l2_l1_data_valid = 1'b0;
-    assign l2_l1_data_paddr = '0;
-    assign l2_l1_data       = '0;
-
-
-  
-
-
 
     lsq #(
         .NUM_ENTRIES    (LSQ_ENTRIES),
@@ -210,7 +200,43 @@ module memory_subsystem #(
         // .resp_valid     (l1_resp_valid_to_lsq),
         // .resp_rdata     (l1_resp_rdata_to_lsq)
     );
- 
+
+    l2_cache #(
+        .L2_CAPACITY    (L2_CAPACITY),
+        .L2_WAYS        (L2_WAYS),
+        .BLOCK_SIZE     (BLOCK_SIZE),
+        .NUM_MSHRS      (L2_MSHRS),
+        .PA_WIDTH       (PA_WIDTH),
+        .DATA_WIDTH     (DATA_WIDTH)
+    ) u_l2 (
+        .clk            (clk),
+        .rst_n          (rst_n),
+
+        // From L1
+        .l1_wb_valid    (l1_l2_wb_valid),
+        .l1_wb_paddr    (l1_l2_wb_paddr),
+        .l1_wb_data     (l1_l2_wb_data),
+        .l1_wb_ack      (l2_l1_wb_ack),
+        .l1_req_valid   (l1_l2_req_valid),
+        .l1_req_paddr   (l1_l2_req_paddr),
+
+        // Back to L1
+        .l1_data_valid  (l2_l1_data_valid),
+        .l1_data_paddr  (l2_l1_data_paddr),
+        .l1_data        (l2_l1_data),
+
+        // To memory
+        .mem_req_valid  (mem_req_valid),
+        .mem_req_is_write(mem_req_is_write),
+        .mem_req_addr   (mem_req_addr),
+        .mem_req_wdata  (mem_req_wdata),
+        .mem_req_ready  (mem_req_ready),
+
+        // From memory
+        .mem_resp_valid (mem_resp_valid),
+        .mem_resp_paddr (mem_resp_paddr),
+        .mem_resp_rdata (mem_resp_rdata)
+    );
 
 endmodule
 
