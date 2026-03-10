@@ -19,14 +19,14 @@ module l1_cache #(
     input  logic                        start_in,           // LSQ has valid request
     input  logic [VA_WIDTH-1:0]         trace_vaddr_in,     // Virtual address from LSQ
     input  logic                        w_in,               // 0=load, 1=store
-    input  logic [DATA_WIDTH-1:0]       wdata_in,           // Store data (MISSING in memsys)
+    input  logic [BLOCK_SIZE-1:0]       wdata_in,           // Store data (MISSING in memsys)
 
     // to lsq
-    output logic                        stall_out,          // Can't accept request
+    output logic                        stall_out           // Can't accept request
 );
 
     localparam int L1_SETS = L1_CAPACITY / (BLOCK_SIZE * L1_WAYS);
-    localparam int OFFSET_BITS = $clog2(BLOCK_SIE);
+    localparam int OFFSET_BITS = $clog2(BLOCK_SIZE);
     localparam int INDEX_BITS = $clog2(L1_SETS);
     localparam int TAG_BITS = PA_WIDTH - INDEX_BITS - OFFSET_BITS;
     localparam int MSHR_BITS = $clog2(L1_MSHRS);
@@ -49,7 +49,7 @@ module l1_cache #(
     logic                   state;
     logic [INDEX_BITS-1:0]  cur_index;
     logic                   cur_w;
-    logic [DATA_WIDTH-1:0]  cur_wdata;
+    logic [BLOCK_SIZE-1:0]  cur_wdata;
 
 
     // TAG CHECK COMBINATIONAL LOGIC
@@ -64,7 +64,7 @@ module l1_cache #(
         hit = 1'b0;
         hit_way = '0;
         for (int w = 0; w < L1_WAYS; w++) begin
-            if (valids[curr_index][w] && tags[curr_index][w] == incoming_tag) begin
+            if (valid[curr_index][w] && tags[curr_index][w] == incoming_tag) begin
                 hit = 1'b1;
                 hit_way = w[WAY_BITS-1:0];
             end
@@ -103,7 +103,7 @@ module l1_cache #(
     logic[BLOCK_SIZE*8-1:0]         l2_data_in[L1_MSHRS];
 
     // L2 output to L1
-    logic                           l2_empty_out[L1_MSHRS],
+    logic                           l2_empty_out[L1_MSHRS];
     logic                           l2_resolve_out[L1_MSHRS];
     logic[BLOCK_SIZE*8-1:0]         l2_superior_data_out[L1_MSHRS];
     logic                           l2_stall_out;
@@ -134,6 +134,39 @@ module l1_cache #(
         .stall_out(l2_stall_out)
     );
 
+    // resolution logic
+    logic                           res;
+    logic[MSHR_BITS-1:0]            res_mshr_index;
+    logic[INDEX_BITS-1:0]           res_index;
+    logic[TAG_BITS-1:0]             res_tag;
+    logic[WAY_BITS-1:0]             res_way;
+
+    assign res_index = mshr_index_buf[res_mshr_index];
+    assign res_tag = mshr_tag_buf[res_mshr_index]
+
+    // resolution mshr index
+    always_comb begin
+        res = 0;
+        for (int i = 0; i < L1_MSHRS; i++) begin
+            if (l2_resolve_out[i]) begin
+                res = 1;
+                res_mshr_index = i[MSHR_BITS-1:0];
+            end
+        end
+    end
+
+    // resolution way
+    always_comb begin
+        for (int w = 0; w < L1_WAYS; w++) begin
+            if (
+                tags[res_index][w] == res_tag &&
+                valid[res_index][w]
+            ) begin
+                res_way = w[INDEX_BITS-1:0];
+            end
+        end
+    end
+
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -157,57 +190,51 @@ module l1_cache #(
             l2_miss_in = '0;
             evict_in = 0;
             
+            // TODO find index of l2 resolution mshr and set flag with combinational logic, avoid for loop
             // there will be at most one mshr resolution on a given positive clock edge
-            generate
-                for (genvar int i = 0; i < NUM_MSHRS; i++) begin
-                    if (l2_resolve_out[i]) begin
-                        // do LRU, evict, update eviction buffer
-                        // process mshr returns
-                        logic[INDEX_BITS-1:0]   set;
-                        logic                   way = lru[set];
-                        assign                  set = mshr_index_buf[i];
+            if (res) begin
+                // do LRU, evict, update eviction buffer
+                // process mshr returns
+                evict_in <= 1;
+                // e_paddr_in <= l2_paddr_in[res_mshr_index];
+                e_paddr_in <= {tags[res_index][res_way], res_index[INDEX_BITS-1:0], {OFFSET_BITS{1'b0}}};
+                e_dirty_in <= dirty[res_index][res_way];
+                e_data_in <= contents[res_set][res_way];
 
-                        evict_in = 1;
-                        e_paddr_in = l2_paddr_in[i];
-                        e_dirty_in = dirty[set][way];
-                        e_data_in = contents[set][way];
-
-                        dirty[set][way] = 0;
-                        contents[set][way] = l2_superior_data_out[i];
-                        tags[set][way] = mshr_tag_buf[i];
-                    end
-                end
-            endgenerate
-
+                dirty[res_index][res_way] <= 0;
+                valid[res_set][res_way] <= 1;
+                contents[res_set][res_way] <= l2_superior_data_out[res_mshr_index];
+                tags[res_set][res_way] <= mshr_tag_buf[i];
+            end
 
             if (state == 0) begin
                 if (start_in && free_mshr_valid) begin
                     // handle input, advance state
-                    cur_index = trace_vaddr_in[OFFSET_BITS+INDEX_BITS-1:OFFSET_BITS];
-                    cur_w = w_in;
-                    cur_wdata = wdata_in;
-                    state = 1;
+                    cur_index <= trace_vaddr_in[OFFSET_BITS+INDEX_BITS-1:OFFSET_BITS];
+                    cur_w <= w_in;
+                    cur_wdata <= wdata_in;
+                    state <= 1;
                 end
             end else if (state == 1) begin
                 // got paddr, now see if we have a hit, advance state
-                state = 0;
-                paddr_reg = tlb_paddr_in;
+                state <= 0;
+                paddr_reg <= tlb_paddr_in;
                 if (hit) begin
                     // DO LRU on set, (write & set dirty)
-                    lru[cur_index] = ~hit_way[0];
+                    lru[cur_index] <= ~hit_way[0];
                     if (cur_w) begin
-                        dirty[cur_index][hit_way] = 1;
-                        contents[cur_index][hit_way] = cur_wdata;
+                        dirty[cur_index][hit_way] <= 1;
+                        contents[cur_index][hit_way] <= cur_wdata;
                     end
                 end else begin
                     // miss, go to MSHR
                     if (free_mshr_valid) begin
-                        l2_miss_in[free_mshr_idx] = 1;
-                        l2_paddr_in[free_mshr_idx] = paddr_reg;
-                        l2_w_in[free_mshr_idx] = cur_w;
-                        l2_data_in[free_mshr_idx] = cur_wdata;
-                        mshr_index_buf[free_mshr_idx] = cur_index;
-                        mshr_tag_buf[free_mshr_idx] = incoming_tag;
+                        l2_miss_in[free_mshr_idx] <= 1;
+                        l2_paddr_in[free_mshr_idx] <= paddr_reg;
+                        l2_w_in[free_mshr_idx] <= cur_w;
+                        l2_data_in[free_mshr_idx] <= cur_wdata;
+                        mshr_index_buf[free_mshr_idx] <= cur_index;
+                        mshr_tag_buf[free_mshr_idx] <= incoming_tag;
                     end else begin
                         // shouldn't happen
                     end
