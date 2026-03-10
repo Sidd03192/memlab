@@ -24,8 +24,6 @@ module l1_cache #(
 
     // to lsq
     output logic                        l1_stall_out_to_lsq ,             // Can't accept request 
-    // output logic                        resp_valid,         // Response ready (MISSING in memsys)
-    // output logic [DATA_WIDTH-1:0]       resp_rdata,         // Load data (MISSING in memsys)
 
     output logic                    l2_wb_valid,
     output logic [PA_WIDTH-1:0]     l2_wb_paddr,

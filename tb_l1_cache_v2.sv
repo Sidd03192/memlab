@@ -560,12 +560,19 @@ module tb_l1_cache_v2;
         //      cycles. wb_valid must remain 1 throughout.
         // ─────────────────────────────────────────────────────────────────────
         $display("\n=== T15: Writeback persistence until ack ===");
-        // Set 3 has PA_S3T1 in way 0 (clean, from T12).
-        // Make it dirty with a store hit, then evict it.
-        send_req(VA_S3W0, PA_S3T1, 1, 64'hF00D_F00D_F00D_F00D); // store hit
+        // Set 3 has PA_S3T1 in way 0 (clean, from T12). Way 1 is invalid.
+        // First fill way 1 so both ways are occupied.
+        full_miss(VA_S3W0, {22'h0000FE, 2'b11, 6'h00}, BLOCK_2); // way 1 of set 3
+        // Now make way 0 (PA_S3T1) dirty with a store hit.
+        send_req(VA_S3W0, PA_S3T1, 1, 64'hF00D_F00D_F00D_F00D);
         @(negedge clk);
         chk_bit("T15 set_dirty[3][0]==1", dut.set_dirty[3][0], 1'b1);
-        // Now miss a different tag in set 3 to trigger eviction
+        // After store hit on way 0: lru[3]=~0=1 (evict way 1 next, which is clean).
+        // Hit way 1 to flip LRU so dirty way 0 becomes the victim.
+        send_req(VA_S3W0, {22'h0000FE, 2'b11, 6'h00}, 0, 0); // hit on way 1
+        @(negedge clk);
+        chk_bit("T15 lru[3]==0 (evict way0 next)", dut.lru[3], 1'b0);
+        // Miss a 3rd tag into set 3 — both ways valid, LRU evicts dirty way 0.
         @(negedge clk);
         start_index = 1; trace_vaddr = VA_S3W0; is_write = 0; wdata = 0;
         @(negedge clk);
@@ -602,6 +609,294 @@ module tb_l1_cache_v2;
         @(negedge clk);
         chk_state("T16 mshr[0] still IDLE after spurious resp", dut.mshr_state[0], MS_IDLE);
         chk_state("T16 mshr[1] still IDLE after spurious resp", dut.mshr_state[1], MS_IDLE);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // FRESH RESET for new test suite (T17+)
+        // ─────────────────────────────────────────────────────────────────────
+        idle_inputs();
+        rst_n = 0;
+        repeat(2) @(negedge clk);
+        rst_n = 1;
+        @(negedge clk);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T17: Back-to-back hits — no unnecessary stall between consecutive hits
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T17: Back-to-back hits ===");
+        full_miss(VA_S0W0, PA_S0T1, BLOCK_1);  // install set0 way0
+        send_req(VA_S0W0, PA_S0T1, 0, 0);      // hit #1
+        @(negedge clk);
+        chk_bit("T17 stall==0 between hits", l1_stall_out_to_lsq, 1'b0);
+        send_req(VA_S0W0, PA_S0T1, 0, 0);      // hit #2 immediately
+        @(negedge clk);
+        chk_bit  ("T17 stall==0 after 2nd hit",  l1_stall_out_to_lsq, 1'b0);
+        chk_state("T17 no MSHR allocated",       dut.mshr_state[0], MS_IDLE);
+        chk_state("T17 mshr[1] still IDLE",      dut.mshr_state[1], MS_IDLE);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T18: Store miss → store merge on install
+        //      Store miss with specific word data, verify L2 block merged
+        //      with store data at the correct word offset after install.
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T18: Store miss -> store merge on install ===");
+        // Store miss to set 1 (cold), word offset 2 (VA_S1W2)
+        send_req(VA_S1W2, PA_S1T1, 1, 64'hCAFE_BABE_CAFE_BABE);
+        @(negedge clk);
+        chk_state("T18 mshr[0]==UNRESOLVED", dut.mshr_state[0], MS_UNRESOLVED);
+        chk_bit  ("T18 mshr_is_write==1",    dut.mshr_is_write[0], 1'b1);
+        // L2 returns BLOCK_1 (all 0xAAAA words)
+        l2_respond(PA_S1T1, BLOCK_1);
+        @(negedge clk); @(negedge clk);
+        chk_state("T18 mshr[0]==IDLE",      dut.mshr_state[0], MS_IDLE);
+        chk_64   ("T18 word2 has store data", dut.set_contents[1][0][2*64 +: 64],
+                                              64'hCAFE_BABE_CAFE_BABE);
+        chk_64   ("T18 word0 from L2 block",  dut.set_contents[1][0][0*64 +: 64],
+                                              64'hAAAA_AAAA_AAAA_AAAA);
+        chk_64   ("T18 word7 from L2 block",  dut.set_contents[1][0][7*64 +: 64],
+                                              64'hAAAA_AAAA_AAAA_AAAA);
+        chk_bit  ("T18 dirty==1 (store)",     dut.set_dirty[1][0], 1'b1);
+        // Load hit same address — should hit, no MSHR
+        send_req(VA_S1W2, PA_S1T1, 0, 0);
+        @(negedge clk);
+        chk_state("T18 hit, no MSHR",        dut.mshr_state[0], MS_IDLE);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T20: Clean eviction — no writeback
+        //      Both ways of set 1 filled with clean data. Third miss evicts
+        //      clean LRU victim → l2_wb_valid must stay 0.
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T20: Clean eviction - no writeback ===");
+        // Set 1 way0 = PA_S1T1 (dirty from T18). Install way1 (clean).
+        full_miss(VA_S1W0, PA_S1T2, BLOCK_2);  // set1 way1 = PA_S1T2, clean
+        // After install into way1: lru[1] = ~1 = 0 (evict way0 next, dirty).
+        // Hit way0 to flip LRU so clean way1 becomes victim.
+        send_req(VA_S1W0, PA_S1T1, 0, 0);      // hit way0
+        @(negedge clk);
+        chk_bit("T20 lru[1]==1 (evict way1)", dut.lru[1], 1'b1);
+        // Miss new tag → evicts way1 (PA_S1T2, clean) → no writeback
+        send_req(VA_S1W0, {22'h000006, 2'b01, 6'h00}, 0, 0);
+        @(negedge clk);
+        l2_respond({22'h000006, 2'b01, 6'h00}, BLOCK_3);
+        @(negedge clk); @(negedge clk);
+        chk_bit ("T20 wb_valid==0 (clean evict)", l2_wb_valid,       1'b0);
+        chk_wide("T20 way1 replaced with BLOCK_3", dut.set_contents[1][1], BLOCK_3);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T19: WB queue full blocks MSHR install
+        //      Fill WB queue to capacity (2), then trigger dirty eviction.
+        //      Install must stall until WB has room.
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T19: WB queue full blocks MSHR install ===");
+        idle_inputs();
+        rst_n = 0;
+        repeat(2) @(negedge clk);
+        rst_n = 1;
+        @(negedge clk);
+
+        // Fill set 0 both ways dirty
+        full_miss(VA_S0W0, PA_S0T1, BLOCK_1);                                        // way0 clean
+        send_req(VA_S0W0, PA_S0T1, 1, 64'hD1D1_D1D1_D1D1_D1D1); @(negedge clk);   // way0 dirty
+        full_miss(VA_S0W0, PA_S0T2, BLOCK_2);                                        // way1 clean
+        send_req(VA_S0W0, PA_S0T2, 1, 64'hD2D2_D2D2_D2D2_D2D2); @(negedge clk);   // way1 dirty
+        // lru[0]=0 after store hit on way1. Evict way0 next.
+        // Miss PA_S0T3 → evicts dirty way0 → WB entry 1
+        send_req(VA_S0W0, PA_S0T3, 0, 0);
+        @(negedge clk);
+        l2_respond(PA_S0T3, BLOCK_3);
+        @(negedge clk); @(negedge clk);
+        chk_bit("T19 wb_valid==1 after 1st evict", l2_wb_valid, 1'b1);
+
+        // set0: way0=PA_S0T3 (clean), way1=PA_S0T2 (dirty). lru=1 (evict way1).
+        // Miss PA_S0T1 → evicts dirty way1 → WB entry 2 (full)
+        send_req(VA_S0W0, PA_S0T1, 0, 0);
+        @(negedge clk);
+        l2_respond(PA_S0T1, BLOCK_1);
+        @(negedge clk); @(negedge clk);
+        chk_bit("T19 wb_full==1 (2 entries)", dut.wb_full, 1'b1);
+
+        // Set up set 2 with dirty way0 (cold set, no eviction needed for install)
+        full_miss(VA_S2W0, PA_S2T1, BLOCK_1);                                        // way0, no evict
+        send_req(VA_S2W0, PA_S2T1, 1, 64'hE1E1_E1E1_E1E1_E1E1); @(negedge clk);   // way0 dirty
+        full_miss(VA_S2W0, PA_S2T2, BLOCK_2);                                        // way1, no evict
+        // lru[2]=0 (evict way0 next, which is dirty)
+
+        // Miss new tag in set 2 → dirty eviction, but WB is full → install stalls
+        send_req(VA_S2W0, {22'h000030, 2'b10, 6'h00}, 0, 0);
+        @(negedge clk);
+        l2_respond({22'h000030, 2'b10, 6'h00}, BLOCK_3);
+        @(negedge clk); @(negedge clk);
+        // MSHR should be RESOLVED but NOT installed (WB full, dirty victim)
+        chk_state("T19 mshr RESOLVED (blocked by wb_full)", dut.mshr_state[0], MS_RESOLVED);
+        chk_bit  ("T19 wb_full still 1",                     dut.wb_full,       1'b1);
+        // Another cycle — still blocked
+        @(negedge clk);
+        chk_state("T19 mshr still RESOLVED",                 dut.mshr_state[0], MS_RESOLVED);
+
+        // Ack one WB entry → install should proceed
+        l2_wb_ack = 1;
+        @(negedge clk);
+        l2_wb_ack = 0;
+        @(negedge clk); @(negedge clk);
+        chk_state("T19 mshr IDLE after ack unblocks install", dut.mshr_state[0], MS_IDLE);
+        chk_bit  ("T19 set2 way0 replaced",                   dut.set_valids[2][0], 1'b1);
+        // The dirty eviction should now be in the WB queue
+        chk_bit  ("T19 wb_valid==1 (evicted line queued)",    l2_wb_valid,       1'b1);
+        // Drain remaining WB
+        l2_wb_ack = 1;
+        repeat(3) @(negedge clk);
+        l2_wb_ack = 0;
+        @(negedge clk);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T21: Simultaneous WB push + pop
+        //      Dirty eviction (push) happens on the same posedge as l2_wb_ack
+        //      (pop). wb_count should remain stable.
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T21: Simultaneous WB push + pop ===");
+        idle_inputs();
+        rst_n = 0;
+        repeat(2) @(negedge clk);
+        rst_n = 1;
+        @(negedge clk);
+
+        // Fill set 0 both ways dirty
+        full_miss(VA_S0W0, PA_S0T1, BLOCK_1);
+        send_req(VA_S0W0, PA_S0T1, 1, 64'hAA00_AA00_AA00_AA00); @(negedge clk);
+        full_miss(VA_S0W0, PA_S0T2, BLOCK_2);
+        send_req(VA_S0W0, PA_S0T2, 1, 64'hBB00_BB00_BB00_BB00); @(negedge clk);
+        // lru[0]=0 (evict way0). Miss → evict dirty way0 → WB=1
+        send_req(VA_S0W0, PA_S0T3, 0, 0);
+        @(negedge clk);
+        l2_respond(PA_S0T3, BLOCK_3);
+        @(negedge clk); @(negedge clk);
+        chk_bit("T21 wb_count==1 before push+pop", (dut.wb_count == 2'd1), 1'b1);
+
+        // set0: way0=PA_S0T3(clean), way1=PA_S0T2(dirty). lru=1 (evict way1).
+        // Miss PA_S0T1 → MSHR. L2 respond → RESOLVED.
+        // Time the l2_wb_ack to coincide with the install posedge.
+        send_req(VA_S0W0, PA_S0T1, 0, 0);
+        @(negedge clk);
+        // L2 respond: first negedge asserts l2_data_valid
+        l2_data_valid = 1; l2_data_paddr = PA_S0T1; l2_data = BLOCK_1;
+        @(negedge clk);
+        // posedge just happened: MSHR → RESOLVED.
+        // Now set ack AND clear l2_data — next posedge will do install + pop
+        l2_data_valid = 0; l2_data_paddr = 0; l2_data = 0;
+        l2_wb_ack = 1;
+        @(negedge clk);
+        // posedge: install loop (push dirty way1) + wb_pop (ack). Push+pop same cycle.
+        l2_wb_ack = 0;
+        @(negedge clk);
+        // wb_count should still be 1: one popped, one pushed
+        chk_bit("T21 wb_count==1 after push+pop", (dut.wb_count == 2'd1), 1'b1);
+        chk_state("T21 mshr IDLE (install succeeded)", dut.mshr_state[0], MS_IDLE);
+        // Drain WB
+        l2_wb_ack = 1; @(negedge clk); l2_wb_ack = 0; @(negedge clk);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T22: L2 response during state 1 (tag wait)
+        //      An outstanding MSHR receives L2 data while L1 is in state 1
+        //      processing a different request. The L2 scan runs outside the
+        //      case statement, so it should still transition to RESOLVED.
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T22: L2 response during state 1 ===");
+        idle_inputs();
+        rst_n = 0;
+        repeat(2) @(negedge clk);
+        rst_n = 1;
+        @(negedge clk);
+
+        // Miss set 0 → MSHR[0] UNRESOLVED
+        send_req(VA_S0W0, PA_S0T1, 0, 0);
+        @(negedge clk);
+        chk_state("T22 mshr[0]==UNRESOLVED", dut.mshr_state[0], MS_UNRESOLVED);
+
+        // Install set 1 way0 (for a hit target)
+        full_miss(VA_S1W0, PA_S1T1, BLOCK_2);
+
+        // Start a new request (hit on set 1) — L1 enters state 1
+        @(negedge clk);
+        start_index = 1; trace_vaddr = VA_S1W0; is_write = 0; wdata = 0;
+        @(negedge clk);
+        // L1 now in state 1 (waiting for tag)
+        start_index = 0;
+        chk_bit("T22 state==1", (dut.state == 3'd1), 1'b1);
+
+        // While in state 1, pulse L2 data for MSHR[0]
+        l2_data_valid = 1; l2_data_paddr = PA_S0T1; l2_data = BLOCK_1;
+        // Also provide tag for the current request (hit)
+        start_tag = 1; tlb_paddr = PA_S1T1;
+        @(negedge clk);
+        // posedge just happened: state 1→0 (hit), L2 scan matches MSHR[0] → RESOLVED
+        // Check NOW before the next posedge runs the install loop
+        chk_state("T22 mshr[0]==RESOLVED despite state1", dut.mshr_state[0], MS_RESOLVED);
+        chk_bit  ("T22 state back to 0",                   (dut.state == 3'd0), 1'b1);
+        start_tag = 0; tlb_paddr = 0;
+        l2_data_valid = 0; l2_data_paddr = 0; l2_data = 0;
+        // Let install drain
+        @(negedge clk); @(negedge clk);
+        chk_state("T22 mshr[0]==IDLE after install",       dut.mshr_state[0], MS_IDLE);
+        chk_bit  ("T22 set0 way0 installed",               dut.set_valids[0][0], 1'b1);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T23: Duplicate MSHR addresses (no deduplication)
+        //      Miss the same address twice → both MSHRs get the same paddr.
+        //      L2 responds once → both MSHRs match and become RESOLVED.
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T23: Duplicate MSHR addresses ===");
+        idle_inputs();
+        rst_n = 0;
+        repeat(2) @(negedge clk);
+        rst_n = 1;
+        @(negedge clk);
+
+        // Miss #1 to PA_S0T1
+        send_req(VA_S0W0, PA_S0T1, 0, 0);
+        @(negedge clk);
+        chk_state("T23 mshr[0]==UNRESOLVED", dut.mshr_state[0], MS_UNRESOLVED);
+        // Miss #2 to same PA (different VA word offset to distinguish)
+        send_req(VA_S0W5, PA_S0T1, 0, 0);
+        @(negedge clk);
+        chk_state("T23 mshr[1]==UNRESOLVED (dup addr)", dut.mshr_state[1], MS_UNRESOLVED);
+        chk_val  ("T23 mshr[0].paddr==PA_S0T1",         dut.mshr_paddr[0], PA_S0T1);
+        chk_val  ("T23 mshr[1].paddr==PA_S0T1",         dut.mshr_paddr[1], PA_S0T1);
+
+        // L2 responds once — both MSHRs should match
+        l2_respond(PA_S0T1, BLOCK_1);
+        chk_state("T23 mshr[0]==RESOLVED", dut.mshr_state[0], MS_RESOLVED);
+        chk_state("T23 mshr[1]==RESOLVED", dut.mshr_state[1], MS_RESOLVED);
+        // Let both install (one per cycle)
+        repeat(4) @(negedge clk);
+        chk_state("T23 mshr[0]==IDLE after drain", dut.mshr_state[0], MS_IDLE);
+        chk_state("T23 mshr[1]==IDLE after drain", dut.mshr_state[1], MS_IDLE);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // T24: Word offset 0 and 7 boundary test
+        //      Store at the lowest (word 0) and highest (word 7) positions
+        //      of a cache line. Verify both writes land correctly and don't
+        //      corrupt each other.
+        // ─────────────────────────────────────────────────────────────────────
+        $display("\n=== T24: Word offset 0 and 7 boundary ===");
+        idle_inputs();
+        rst_n = 0;
+        repeat(2) @(negedge clk);
+        rst_n = 1;
+        @(negedge clk);
+
+        // Install clean block into set 0 way 0
+        full_miss(VA_S0W0, PA_S0T1, BLOCK_ZERO);
+        // Store to word 0 (bits [63:0])
+        send_req(VA_S0W0, PA_S0T1, 1, 64'h0000_0000_DEAD_0000);
+        @(negedge clk);
+        chk_64("T24 word0 written",    dut.set_contents[0][0][0*64 +: 64], 64'h0000_0000_DEAD_0000);
+        chk_64("T24 word1 still zero", dut.set_contents[0][0][1*64 +: 64], 64'h0);
+        // Store to word 7 (bits [511:448])
+        send_req(VA_S0W7, PA_S0T1, 1, 64'hBEEF_0000_0000_BEEF);
+        @(negedge clk);
+        chk_64("T24 word7 written",    dut.set_contents[0][0][7*64 +: 64], 64'hBEEF_0000_0000_BEEF);
+        chk_64("T24 word6 still zero", dut.set_contents[0][0][6*64 +: 64], 64'h0);
+        chk_64("T24 word0 preserved",  dut.set_contents[0][0][0*64 +: 64], 64'h0000_0000_DEAD_0000);
+        chk_bit("T24 dirty==1",        dut.set_dirty[0][0], 1'b1);
 
         // ─────────────────────────────────────────────────────────────────────
         // RESULTS
