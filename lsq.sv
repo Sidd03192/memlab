@@ -49,7 +49,8 @@ module lsq #(
 
     // MEM issue — exposed so higher module can drive TLB/L1 with correct vaddr
     output logic [VA_WIDTH-1:0]             issue_vaddr,
-    output logic [DATA_WIDTH -1:0]          issue_wdata
+    output logic [DATA_WIDTH -1:0]          issue_wdata,
+    output logic [2:0]                      issue_op
 );
 
     localparam int LQ_PTR_WIDTH = $clog2(LQ_ENTRIES);
