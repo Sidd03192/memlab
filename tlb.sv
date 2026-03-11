@@ -9,8 +9,7 @@ module tlb (
 
     output logic        ready, // ready out
     output logic        valid, // tells l1 if we have an output. 
-    output logic [29:0] result_paddr,
-    output logic        panic_tlb_miss
+    output logic [29:0] result_paddr
 );
 
     logic [60:0] ways [16];
@@ -44,7 +43,6 @@ module tlb (
             // clear array and set everything to :(
             ready <= 1;
             valid <= 0;
-            panic_tlb_miss <= 0;
             for (int i = 0; i < 16; i++) begin
                 ways[i] <= '0;
                 lrumat[i] <= '0;
@@ -71,10 +69,6 @@ module tlb (
                     for (int j = 0; j < 16; j++) begin
                         lrumat[j][hit_index] <= 1'b0;
                     end
-
-                    panic_tlb_miss <= 1'b0;
-                end else begin
-                    panic_tlb_miss <= 1'b1;
                 end
             end
     

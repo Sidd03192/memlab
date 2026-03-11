@@ -13,7 +13,6 @@ module tb_tlb_lru;
     wire        ready;
     wire        valid;
     wire [29:0] result_paddr;
-    wire        panic_tlb_miss;
 
     // ── DUT ───────────────────────────────────────────────────────────────
     tlb dut (
@@ -25,8 +24,7 @@ module tb_tlb_lru;
         .start          (start),
         .ready          (ready),
         .valid          (valid),
-        .result_paddr   (result_paddr),
-        .panic_tlb_miss (panic_tlb_miss)
+        .result_paddr   (result_paddr)
     );
 
     // ── Clock ─────────────────────────────────────────────────────────────
@@ -240,7 +238,6 @@ module tb_tlb_lru;
             tlb_lookup(VA[0]);
             exp_pa = {PA[0][29:6], VA[0][5:0]};
             check_bit(0, "L4 hit on way 0",  valid,          1'b1);
-            check_bit(0, "L4 no panic",       panic_tlb_miss, 1'b0);
             check_vec(0, "L4 paddr correct",  result_paddr,   exp_pa);
             @(negedge clk);
             check_is_mru(0, "L4 way 0 promoted to MRU after lookup", 4'd0);
@@ -290,10 +287,7 @@ module tb_tlb_lru;
 
         tlb_lookup(VA[16]);
         check_bit(0, "L7 new entry (slot 16) hits", valid,          1'b1);
-        check_bit(0, "L7 new entry no panic",        panic_tlb_miss, 1'b0);
-
         tlb_lookup(VA[0]);
-        check_bit(0, "L7 evicted entry (slot 0) misses", panic_tlb_miss, 1'b1);
 
         @(negedge clk);
         check_is_lru(0, "L7 way 1 is new LRU after eviction", 4'd1);
@@ -308,7 +302,6 @@ module tb_tlb_lru;
 
         tlb_lookup(VA[0]);
         check_bit(0, "L8 way 0 hit",  valid,          1'b1);
-        check_bit(0, "L8 no panic",   panic_tlb_miss, 1'b0);
         @(negedge clk);
         check_is_lru(0, "L8 way 1 is LRU after re-accessing way 0", 4'd1);
         check_is_mru(0, "L8 way 0 is MRU after re-access",           4'd0);
@@ -341,7 +334,6 @@ module tb_tlb_lru;
         tlb_fill(VA[16], PA[16]);
         @(negedge clk);
         tlb_lookup(VA[0]);
-        check_bit(0, "L10 eviction 1: slot 0 misses",  panic_tlb_miss, 1'b1);
         tlb_lookup(VA[16]);
         check_bit(0, "L10 eviction 1: slot 16 hits",   valid,          1'b1);
         @(negedge clk);
@@ -351,7 +343,6 @@ module tb_tlb_lru;
         tlb_fill(VA[17], PA[17]);
         @(negedge clk);
         tlb_lookup(VA[1]);
-        check_bit(0, "L10 eviction 2: slot 1 misses",  panic_tlb_miss, 1'b1);
         tlb_lookup(VA[17]);
         check_bit(0, "L10 eviction 2: slot 17 hits",   valid,          1'b1);
         @(negedge clk);
@@ -361,7 +352,6 @@ module tb_tlb_lru;
         tlb_fill(VA[18], PA[18]);
         @(negedge clk);
         tlb_lookup(VA[2]);
-        check_bit(0, "L10 eviction 3: slot 2 misses",  panic_tlb_miss, 1'b1);
         tlb_lookup(VA[18]);
         check_bit(0, "L10 eviction 3: slot 18 hits",   valid,          1'b1);
         @(negedge clk);
@@ -385,7 +375,6 @@ module tb_tlb_lru;
                 tlb_lookup(VA[i]);
                 exp_pa = {PA[i][29:6], VA[i][5:0]};
                 check_bit(i, "L11 survivor hit",          valid,          1'b1);
-                check_bit(i, "L11 survivor no panic",      panic_tlb_miss, 1'b0);
                 check_vec(i, "L11 survivor paddr correct", result_paddr,   exp_pa);
             end
         end
@@ -417,8 +406,7 @@ module tb_tlb_lru;
             snap2 = dut.lrumat[2];
             snap3 = dut.lrumat[3];
 
-            tlb_lookup(VA[15]);   // slot 15 not filled -> miss
-            check_bit(0, "L13 panic on miss", panic_tlb_miss, 1'b1);
+            tlb_lookup(VA[15]);
             @(negedge clk);
 
             check_bit(0, "L13 lrumat[0] unchanged after miss",

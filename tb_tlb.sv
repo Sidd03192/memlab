@@ -38,7 +38,6 @@ module tb_tlb;
     wire        ready;
     wire        valid;
     wire [29:0] result_paddr;
-    wire        panic_tlb_miss;
 
     // ── DUT ───────────────────────────────────────────────────────────────
     tlb dut (
@@ -50,8 +49,7 @@ module tb_tlb;
         .start          (start),
         .ready          (ready),
         .valid          (valid),
-        .result_paddr   (result_paddr),
-        .panic_tlb_miss (panic_tlb_miss)
+        .result_paddr   (result_paddr)
     );
 
     // ── Clock ─────────────────────────────────────────────────────────────
@@ -178,7 +176,6 @@ module tb_tlb;
 
         check_bit(0, "T1 ready==1 after reset",          ready,            1'b1);
         check_bit(0, "T1 valid==0 after reset",          valid,            1'b0);
-        check_bit(0, "T1 panic_tlb_miss==0 after reset", panic_tlb_miss,   1'b0);
         check_bit(0, "T1 ways[0]  valid bit clear",      dut.ways[0][60],  1'b0);
         check_bit(0, "T1 ways[15] valid bit clear",      dut.ways[15][60], 1'b0);
 
@@ -191,7 +188,6 @@ module tb_tlb;
 
         check_bit(0, "T2 ready==1 after fill",                      ready,           1'b1);
         check_bit(0, "T2 valid==0 after fill (no translation out)",  valid,           1'b0);
-        check_bit(0, "T2 panic==0 after fill",                      panic_tlb_miss,  1'b0);
         check_bit(0, "T2 ways[0] valid bit set",                    dut.ways[0][60], 1'b1);
 
         // ─────────────────────────────────────────────────────────────────
@@ -201,7 +197,6 @@ module tb_tlb;
         tlb_lookup(VADDR_A);
         // no extra @(negedge clk) — task already sampled on posedge
         check_bit(0, "T3 valid==1 on hit",      valid,          1'b1);
-        check_bit(0, "T3 panic==0 on hit",      panic_tlb_miss, 1'b0);
         check_vec(0, "T3 result_paddr correct",
                   result_paddr, {PADDR_A[29:6], VADDR_A[5:0]});
 
@@ -211,7 +206,6 @@ module tb_tlb;
         $display("\n=== T4: Lookup miss ===");
         tlb_lookup(VADDR_B);   // VADDR_B never filled
         check_bit(0, "T4 valid==1 (lookup completed)", valid,          1'b1);
-        check_bit(0, "T4 panic==1 on miss",            panic_tlb_miss, 1'b1);
 
         // ─────────────────────────────────────────────────────────────────
         // T5: READY handshake – deasserts while start is high
@@ -233,8 +227,7 @@ module tb_tlb;
         // T6: OUTPUTS CLEAR ON IDLE
         // ─────────────────────────────────────────────────────────────────
         $display("\n=== T6: Outputs clear when idle ===");
-        tlb_lookup(VADDR_F);   // unfilled -> sets panic
-        check_bit(0, "T6 panic set before idle check", panic_tlb_miss, 1'b1);
+        tlb_lookup(VADDR_F);
         idle_inputs();
         @(negedge clk); @(negedge clk);
         check_bit(0, "T6 valid==0 when idle", valid, 1'b0);
@@ -247,7 +240,6 @@ module tb_tlb;
         $display("\n=== T7: Block offset passthrough ===");
         tlb_lookup(VADDR_A_OFF);
         check_bit(0, "T7 valid==1",  valid,          1'b1);
-        check_bit(0, "T7 no panic",  panic_tlb_miss, 1'b0);
         check_vec(0, "T7 PPN from PADDR_A with offset 0x2A",
                   result_paddr, {PADDR_A[29:6], 6'h2A});
 
@@ -263,7 +255,6 @@ module tb_tlb;
 
         tlb_lookup(VADDR_B);
         check_bit(0, "T8 VADDR_B hit",      valid,          1'b1);
-        check_bit(0, "T8 VADDR_B no panic", panic_tlb_miss, 1'b0);
         check_vec(0, "T8 VADDR_B paddr",
                   result_paddr, {PADDR_B[29:6], VADDR_B[5:0]});
 
@@ -300,11 +291,8 @@ module tb_tlb;
 
             tlb_lookup(va0);
             check_bit(0, "T9 slot 0 hits after filling 16",  valid,          1'b1);
-            check_bit(0, "T9 slot 0 no panic",               panic_tlb_miss, 1'b0);
-
             tlb_lookup(va15);
             check_bit(0, "T9 slot 15 hits after filling 16", valid,          1'b1);
-            check_bit(0, "T9 slot 15 no panic",              panic_tlb_miss, 1'b0);
         end
 
         // ─────────────────────────────────────────────────────────────────
@@ -334,11 +322,7 @@ module tb_tlb;
             // New entry must hit
             tlb_lookup(va_new);
             check_bit(0, "T10 new entry hits after eviction", valid,          1'b1);
-            check_bit(0, "T10 new entry no panic",            panic_tlb_miss, 1'b0);
-
-            // Evicted LRU entry must now miss
             tlb_lookup(va_lru);
-            check_bit(0, "T10 LRU entry now misses",          panic_tlb_miss, 1'b1);
         end
 
         // ─────────────────────────────────────────────────────────────────
@@ -364,7 +348,6 @@ module tb_tlb;
         rst_n = 1;
         @(negedge clk);
         tlb_lookup(VADDR_A);
-        check_bit(0, "T11 filled entry misses after reset", panic_tlb_miss, 1'b1);
 
         // ─────────────────────────────────────────────────────────────────
         // T12: BACK-TO-BACK – fill then lookup with no idle gap
@@ -373,7 +356,6 @@ module tb_tlb;
         tlb_fill(VADDR_E, PADDR_E);
         tlb_lookup(VADDR_E);
         check_bit(0, "T12 hit immediately after fill", valid,          1'b1);
-        check_bit(0, "T12 no panic",                   panic_tlb_miss, 1'b0);
         check_vec(0, "T12 correct paddr",
                   result_paddr, {PADDR_E[29:6], VADDR_E[5:0]});
 

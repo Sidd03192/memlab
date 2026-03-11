@@ -87,17 +87,19 @@ module memory_subsystem #(
     wire is_tlb_fill = (trace_op == OP_TLB_FILL);
     wire is_mem_op  = is_load || is_store || is_resolve;
 
+    // Consume a trace record only on an actual valid/ready handshake.
+    wire trace_fire = trace_valid && trace_ready;
+
     // Route to LSQ or TLB based on operation type
-    wire lsq_trace_valid  = trace_valid && is_mem_op;
+    wire lsq_trace_valid  = trace_fire && is_mem_op;
 
     // TLB Signals
     logic tlb_ready;
     logic tlb_valid;
     logic [PA_WIDTH-1:0] tlb_result_paddr;
-    logic tlb_panic_miss;
 
     // TLB fill happening this cycle (used for collision prevention)
-    wire is_tlb_fill_now = trace_valid && is_tlb_fill;
+    wire is_tlb_fill_now = trace_fire && is_tlb_fill;
 
     // LSQ → L1/TLB wires
     logic                       l1_busy_to_lsq;
@@ -188,8 +190,7 @@ module memory_subsystem #(
         // Outputs
         .ready          (tlb_ready),
         .valid          (tlb_valid),
-        .result_paddr   (tlb_result_paddr),
-        .panic_tlb_miss (tlb_panic_miss)
+        .result_paddr   (tlb_result_paddr)
     );
     l1_cache #(
         .L1_CAPACITY    (L1_CAPACITY),
