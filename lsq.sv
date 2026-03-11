@@ -55,9 +55,9 @@ module lsq #(
     localparam int LQ_PTR_WIDTH = $clog2(LQ_ENTRIES);
     localparam int SQ_PTR_WIDTH = $clog2(SQ_ENTRIES);
 
-    localparam int LOAD         = 3'd0;  // reading from memory
-    localparam int STORE        = 3'd1;  // writing to memory
-    localparam int RESOLVE      = 3'd2;  // Resolving addr or value of a memory operation
+    localparam logic [2:0] LOAD         = 3'd0;  // reading from memory
+    localparam logic [2:0] STORE        = 3'd1;  // writing to memory
+    localparam logic [2:0] RESOLVE      = 3'd2;  // Resolving addr or value of a memory operation
 
 
     // =========================================================================
@@ -84,11 +84,11 @@ module lsq #(
     // STORE QUEUE STATE
     // =========================================================================
     typedef enum logic [2:0] {
-        SQ_EMPTY         = 2'd0,
-        SQ_UNRESOLVED    = 2'd1,  // EA & WDATA NOT KNOWN
-        SQ_WAITING_ADDR  = 2'd2,  // EA not yet known
-        SQ_WAITING_DATA  = 2'd3,  // EA known, waiting for data
-        SQ_WAITING_ISSUE = 2'd4   // EA resolved, ready to retire at head
+        SQ_EMPTY         = 3'd0,
+        SQ_UNRESOLVED    = 3'd1,  // EA & WDATA NOT KNOWN
+        SQ_WAITING_ADDR  = 3'd2,  // EA not yet known
+        SQ_WAITING_DATA  = 3'd3,  // EA known, waiting for data
+        SQ_WAITING_ISSUE = 3'd4   // EA resolved, ready to retire at head
     } sq_state_t;
 
     sq_state_t                   sq_state      [SQ_ENTRIES];
@@ -106,8 +106,8 @@ module lsq #(
     // LOAD ISSUE ARBITRATION
     // Oldest LQ_WAITING_ISSUE entry, gated by is_unresolved_store
     // =========================================================================
-    logic                    lq_found;
-    logic [LQ_PTR_WIDTH-1:0] lq_found_entry;
+    logic                      lq_found;
+    logic [LQ_PTR_WIDTH - 1:0] lq_found_entry;
 
     always_comb begin
         lq_found       =  1'b0;
@@ -132,10 +132,10 @@ module lsq #(
 
     always_comb begin
         is_unresolved_store = 1'b0;
-        if (lq_found) begin
-            for (int i = 0; i < SQ_ENTRIES; i++) begin
-                logic [SQ_PTR_WIDTH - 1:0] idx;
-                idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
+        for (int i = 0; i < SQ_ENTRIES; i++) begin
+            logic [SQ_PTR_WIDTH - 1:0] idx;
+            idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
+            if (lq_found) begin
                 // go to before vector of load entry found. 
                 // starting at the tail idx check both before @ idx == 1 && vaddr @ idx
                 // if vaddr is unresolved; mark flag, cannot issue load.
@@ -153,9 +153,9 @@ module lsq #(
     // STORE ISSUE ARBITRATION
     // Oldest SQ_WAITING_ISSUE entry, gated by is_unresolved_load
     // =========================================================================
-    logic                    sq_found;
-    logic [SQ_PTR_WIDTH-1:0] sq_found_entry;
-    logic                    sq_unresolved;
+    logic                      sq_found;
+    logic [SQ_PTR_WIDTH - 1:0] sq_found_entry;
+    logic                      sq_unresolved;
 
     always_comb begin
         sq_found       = 1'b0;
@@ -189,10 +189,10 @@ module lsq #(
         is_unresolved_load = 1'b0;
         unresolved_val_store = 1'b0;
         terminate_loop = 1'b0;
-        if (sq_found) begin
-            for (int i = 0; i < LQ_ENTRIES; i++) begin
-                logic [LQ_PTR_WIDTH - 1:0] idx;
-                idx = lq_head + i[LQ_PTR_WIDTH - 1:0];
+        for (int i = 0; i < LQ_ENTRIES; i++) begin
+            logic [LQ_PTR_WIDTH - 1:0] idx;
+            idx = lq_head + i[LQ_PTR_WIDTH - 1:0];
+            if (sq_found) begin
                 // go to before vector of load entry found. 
                 // starting at the tail idx check both before @ idx == 1 && vaddr @ idx
                 // if vaddr is unresolved; mark flag, cannot issue load.
@@ -200,9 +200,11 @@ module lsq #(
                     is_unresolved_load = 1'b1;
                 end
             end
-            for (int i = 0; i < SQ_ENTRIES; i++) begin
-                logic [SQ_PTR_WIDTH-1:0] idx;
-                idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
+        end
+        for (int i = 0; i < SQ_ENTRIES; i++) begin
+            logic [SQ_PTR_WIDTH-1:0] idx;
+            idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
+            if (sq_found) begin
                 if (idx == sq_found_entry) begin
                     terminate_loop = 1'b1;
                 end
