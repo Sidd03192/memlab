@@ -23,7 +23,7 @@ module l1_cache #(
     input  logic [DATA_WIDTH-1:0]       wdata,              // Store data (MISSING in memsys)
 
     // to lsq
-    output logic                        l1_stall_out_to_lsq ,             // Can't accept request 
+    output logic                    l1_stall_out_to_lsq ,             // Can't accept request 
 
     output logic                    l2_wb_valid,
     output logic [PA_WIDTH-1:0]     l2_wb_paddr,
