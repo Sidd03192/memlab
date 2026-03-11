@@ -321,36 +321,38 @@ module lsq #(
             // Dismissal — L1 and TLB both accepted
             // -----------------------------------------------------------------
             if (l1_ready && tlb_ready) begin
-                if (lq_found && !is_unresolved_store) begin
-                    if (lq_before_vec[lq_found_entry][sq_head] == 1'b0 || (sq_found && (is_unresolved_load || unresolved_val_store || lq_before_vec[lq_found_entry][sq_found_entry] == 1'b0))) begin
-                        issue_vaddr <= lq_vaddr[lq_found_entry];
-                        lq_state[lq_found_entry] <= LQ_EMPTY;
-                        for (int i = 0; i < SQ_ENTRIES; i++) begin
-                            logic [SQ_PTR_WIDTH-1:0] idx;
-                            idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
-                            sq_before_vec[idx][lq_found_entry] <= 1'b0;
-                        end
-                        if (lq_found_entry == lq_head) begin
-                            lq_head <= lq_head + 1'b1;
-                        end
-                        valid_out <= 1'b1;
+                if (lq_found && !is_unresolved_store 
+                && (lq_before_vec[lq_found_entry][sq_head] == 1'b0 
+                || (!sq_found) || (sq_found && (is_unresolved_load || unresolved_val_store 
+                || lq_before_vec[lq_found_entry][sq_found_entry] == 1'b0)))) begin
+                    issue_vaddr <= lq_vaddr[lq_found_entry];
+                    lq_state[lq_found_entry] <= LQ_EMPTY;
+                    for (int i = 0; i < SQ_ENTRIES; i++) begin
+                        logic [SQ_PTR_WIDTH-1:0] idx;
+                        idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
+                        sq_before_vec[idx][lq_found_entry] <= 1'b0;
                     end
+                    if (lq_found_entry == lq_head) begin
+                        lq_head <= lq_head + 1'b1;
+                    end
+                    valid_out <= 1'b1;
                 end
-                else if (sq_found && !is_unresolved_load && !unresolved_val_store) begin
-                    if (sq_before_vec[sq_found_entry][lq_head] == 1'b0 || (lq_found && (is_unresolved_store || sq_before_vec[sq_found_entry][lq_found_entry] == 1'b0))) begin
-                        issue_vaddr <= sq_vaddr[sq_found_entry];
-                        issue_wdata <= sq_wdata[sq_found_entry];
-                        sq_state[sq_found_entry] <= SQ_EMPTY;
-                        for (int i = 0; i < LQ_ENTRIES; i++) begin
-                            logic [LQ_PTR_WIDTH-1:0] idx;
-                            idx = sq_head + i[LQ_PTR_WIDTH - 1:0];
-                            lq_before_vec[idx][sq_found_entry] <= 1'b0;
-                        end
-                        if (sq_found_entry == sq_head) begin
-                            sq_head <= sq_head + 1'b1;
-                        end
-                        valid_out <= 1'b1;
+            else if (sq_found && !is_unresolved_load && !unresolved_val_store 
+                && (sq_before_vec[sq_found_entry][lq_head] == 1'b0 
+                || (!lq_found) || (lq_found && (is_unresolved_store 
+                || sq_before_vec[sq_found_entry][lq_found_entry] == 1'b0)))) begin
+                    issue_vaddr <= sq_vaddr[sq_found_entry];
+                    issue_wdata <= sq_wdata[sq_found_entry];
+                    sq_state[sq_found_entry] <= SQ_EMPTY;
+                    for (int i = 0; i < LQ_ENTRIES; i++) begin
+                        logic [LQ_PTR_WIDTH-1:0] idx;
+                        idx = sq_head + i[LQ_PTR_WIDTH - 1:0];
+                        lq_before_vec[idx][sq_found_entry] <= 1'b0;
                     end
+                    if (sq_found_entry == sq_head) begin
+                        sq_head <= sq_head + 1'b1;
+                    end
+                    valid_out <= 1'b1;
                 end
             end
 
