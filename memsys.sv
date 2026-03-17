@@ -79,7 +79,6 @@ module memory_subsystem #(
     wire                    trace_value_valid = trace_data[120];
     wire [PA_WIDTH-1:0]     trace_tlb_paddr   = trace_data[85:56];
 
-    // Determine operation type
     wire is_load    = (trace_op == OP_MEM_LOAD);
     wire is_store   = (trace_op == OP_MEM_STORE);
     wire is_resolve = (trace_op == OP_MEM_RESOLVE);
@@ -87,10 +86,8 @@ module memory_subsystem #(
     wire is_tlb_fill = (trace_op == OP_TLB_FILL);
     wire is_mem_op  = is_load || is_store || is_resolve;
 
-    // Consume a trace record only on an actual valid/ready handshake.
     wire trace_fire = trace_valid && trace_ready;
 
-    // Route to LSQ or TLB based on operation type
     wire lsq_trace_valid  = trace_fire && is_mem_op;
 
     // TLB Signals
@@ -101,7 +98,7 @@ module memory_subsystem #(
     // TLB fill happening this cycle (used for collision prevention)
     wire is_tlb_fill_now = trace_fire && is_tlb_fill;
 
-    // LSQ → L1/TLB wires
+    // LSQ → issue buffer wires
     logic                       l1_busy_to_lsq;
     logic [VA_WIDTH-1:0]        lsq_vaddr_to_l1;
     logic                       lsq_valid_to_l1;
@@ -110,29 +107,33 @@ module memory_subsystem #(
     logic                       lsq_lq_ready;
     logic                       lsq_sq_ready;
 
-    // Derive is_write from LSQ issue_op (STORE = 3'd1)
-    wire lsq_is_write_to_l1 = (lsq_issue_op == 3'd1);
+    // One-entry issue buffer decouples LSQ dequeue from L1/TLB launch.
+    logic                    issue_buf_valid;
+    logic [VA_WIDTH-1:0]     issue_buf_vaddr;
+    logic [DATA_WIDTH-1:0]   issue_buf_wdata;
+    logic [2:0]              issue_buf_op;
+    wire                     issue_buf_empty = !issue_buf_valid;
+    wire                     issue_buf_is_write = (issue_buf_op == OP_MEM_STORE);
 
-    // Prevent LSQ from issuing on the same cycle as a TLB fill.
-    // tlb_ready goes low 1 cycle AFTER start, so without this gate
-    // the LSQ could issue while TLB is busy with a fill.
-    wire lsq_tlb_ready = tlb_ready && !is_tlb_fill_now;
+    // lsq only dq when empyty
+    wire lsq_issue_slot_ready = issue_buf_empty;
 
-    // TLB start: fires on fills OR LSQ issue (lookup)
-    // If both collide, is_tlb_fill_now prevents LSQ issue via lsq_tlb_ready
-    wire tlb_start = is_tlb_fill_now || lsq_valid_to_l1;
+// send on ready
+    wire launch_issue_now = issue_buf_valid && !is_tlb_fill_now && !l1_busy_to_lsq && tlb_ready;
 
-    // TLB vaddr mux: fill uses trace_vaddr, lookup uses LSQ issue_vaddr
-    wire [VA_WIDTH-1:0] tlb_vaddr_mux = is_tlb_fill_now ? trace_vaddr : lsq_vaddr_to_l1;
+    wire tlb_start = is_tlb_fill_now || launch_issue_now;
+
+    // fill uses trace_vaddr, lookup uses LSQ issue_vaddr
+    wire [VA_WIDTH-1:0] tlb_vaddr_mux = is_tlb_fill_now ? trace_vaddr : issue_buf_vaddr;
 
     // Gate L1 start_index so it doesn't fire during a TLB fill collision
-    wire l1_start_from_lsq = lsq_valid_to_l1 && !is_tlb_fill_now;
+    wire l1_start_from_lsq = launch_issue_now;
 
-    // trace_ready: LSQ can accept based on op type
     assign trace_ready = is_tlb_fill ? tlb_ready
                        : is_load     ? lsq_lq_ready
                        : is_store    ? lsq_sq_ready
-                       :               lsq_lq_ready && lsq_sq_ready;
+                       : is_resolve  ? 1'b1
+                       :               1'b0;
 
     // L1 <-> L2 signals.
     logic                       l1_l2_wb_valid;
@@ -164,8 +165,8 @@ module memory_subsystem #(
         .id_in          (trace_id),
 
         // From L1 / TLB
-        .l1_ready       (~l1_busy_to_lsq),
-        .tlb_ready      (lsq_tlb_ready),
+        .l1_ready       (lsq_issue_slot_ready),
+        .tlb_ready      (lsq_issue_slot_ready),
 
         // Outputs
         .lq_ready       (lsq_lq_ready),
@@ -205,9 +206,9 @@ module memory_subsystem #(
 
         // From LSQ (gated: no start during TLB fill collision)
         .start_index    (l1_start_from_lsq),
-        .trace_vaddr    (lsq_vaddr_to_l1),
-        .is_write       (lsq_is_write_to_l1),
-        .wdata          (lsq_wdata_to_l1),
+        .trace_vaddr    (issue_buf_vaddr),
+        .is_write       (issue_buf_is_write),
+        .wdata          (issue_buf_wdata),
 
         // To LSQ
         .l1_stall_out_to_lsq (l1_busy_to_lsq),
@@ -260,6 +261,27 @@ module memory_subsystem #(
         .mem_resp_paddr (mem_resp_paddr),
         .mem_resp_rdata (mem_resp_rdata)
     );
+
+// comb logic to handle issue buffer. 
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            issue_buf_valid <= 1'b0;
+            issue_buf_vaddr <= '0;
+            issue_buf_wdata <= '0;
+            issue_buf_op    <= '0;
+        end else begin
+            if (launch_issue_now) begin
+                issue_buf_valid <= 1'b0;
+            end
+
+            if (lsq_valid_to_l1) begin
+                issue_buf_valid <= 1'b1;
+                issue_buf_vaddr <= lsq_vaddr_to_l1;
+                issue_buf_wdata <= lsq_wdata_to_l1;
+                issue_buf_op    <= lsq_issue_op;
+            end
+        end
+    end
 
 endmodule
 

@@ -73,7 +73,7 @@ module tb_memsys_trace;
 
     logic                     tlb_map_valid [0:TLB_TABLE_SIZE-1];
     logic [35:0]              tlb_map_vpn   [0:TLB_TABLE_SIZE-1];
-    logic [23:0]              tlb_map_ptag  [0:TLB_TABLE_SIZE-1];
+    logic [17:0]              tlb_map_ptag  [0:TLB_TABLE_SIZE-1];
 
     logic                     expected_valid [0:EXPECTED_WORD_SIZE-1];
     logic [PA_WIDTH-1:0]      expected_paddr [0:EXPECTED_WORD_SIZE-1];
@@ -287,7 +287,7 @@ module tb_memsys_trace;
                     if (!tlb_map_valid[idx] || tlb_map_vpn[idx] == vpn) begin
                         tlb_map_valid[idx] = 1'b1;
                         tlb_map_vpn[idx]   = vpn;
-                        tlb_map_ptag[idx]  = paddr[29:6];
+                        tlb_map_ptag[idx]  = paddr[29:12];
                         disable tlb_insert;
                     end
                     idx = idx + 1;
@@ -318,7 +318,7 @@ module tb_memsys_trace;
                     end
                     if (tlb_map_vpn[idx] == vpn) begin
                         found = 1'b1;
-                        paddr = {tlb_map_ptag[idx], vaddr[5:0]};
+                        paddr = {tlb_map_ptag[idx], vaddr[11:0]};
                         disable tlb_lookup;
                     end
                     idx = idx + 1;
@@ -503,11 +503,20 @@ module tb_memsys_trace;
         input integer max_cycles
     );
         integer waited;
+        integer i;
         logic done;
+        logic lsq_quiescent;
         begin
             waited = 0;
             done = 1'b0;
             while (waited < max_cycles && !done) begin
+                lsq_quiescent = 1'b1;
+                for (i = 0; i < 8; i = i + 1) begin
+                    if (dut.u_lsq.lq_state[i] == 2)
+                        lsq_quiescent = 1'b0;
+                    if (dut.u_lsq.sq_state[i] == 4)
+                        lsq_quiescent = 1'b0;
+                end
                 if (dut.u_l1.mshr_state[0] == L1_MS_IDLE &&
                     dut.u_l1.mshr_state[1] == L1_MS_IDLE &&
                     dut.u_l1.state == 3'd0 &&
@@ -518,7 +527,8 @@ module tb_memsys_trace;
                     dut.u_l1.wb_empty &&
                     dut.u_l2.wb_empty &&
                     dut.u_tlb.ready &&
-                    !dut.u_lsq.valid_out) begin
+                    !dut.u_lsq.valid_out &&
+                    lsq_quiescent) begin
                     done = 1'b1;
                 end else begin
                     @(negedge clk);

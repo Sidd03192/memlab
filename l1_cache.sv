@@ -47,6 +47,7 @@ module l1_cache #(
     localparam int INDEX_BITS = $clog2(L1_SETS);
     localparam int OFFSET_BITS = $clog2(BLOCK_SIZE);           // 6 for 64-byte blocks
     localparam int WORD_BITS   = $clog2(BLOCK_SIZE * 8 / DATA_WIDTH); // 3: 8 words/block
+    localparam int WORDS_PER_BLOCK = BLOCK_SIZE * 8 / DATA_WIDTH;
     localparam int TAG_SIZE    = PA_WIDTH - INDEX_BITS - OFFSET_BITS; // 30-2-6 = 22
     
     // TODO: Add actual cache structure (wires)
@@ -60,14 +61,15 @@ module l1_cache #(
 
 
     // state machine data
-    logic [2:0] state ;
-    logic [INDEX_BITS-1:0]  curr_index;
-    logic                   curr_is_write;
-    logic [DATA_WIDTH-1:0]  curr_wdata;
-    logic [WORD_BITS-1:0]   curr_word_offset; // which 64-bit word within the block
+logic [2:0] state ;
+logic [INDEX_BITS-1:0]  curr_index;
+logic                   curr_is_write;
+logic [DATA_WIDTH-1:0]  curr_wdata;
+logic [WORD_BITS-1:0]   curr_word_offset; // which 64-bit word within the block for miss to same line
+logic                   mshr_dup;
+logic [$clog2(NUM_MSHRS)-1:0] mshr_dup_idx;
 
 
-// evict temporaries — declared at module scope (can't declare logic inside always_ff)
 logic                evict_way_l;
 logic [PA_WIDTH-1:0] evict_pa;
 logic                mshr_install_done; // flag to process only one RESOLVED slot per cycle (replaces break)
@@ -76,10 +78,9 @@ logic                mshr_install_done; // flag to process only one RESOLVED slo
 logic [1:0] mshr_state [NUM_MSHRS];
 logic [PA_WIDTH-1:0]     mshr_paddr    [NUM_MSHRS];
 logic [INDEX_BITS-1:0]   mshr_index    [NUM_MSHRS];
-logic                    mshr_is_write [NUM_MSHRS];
-logic [DATA_WIDTH-1:0]   mshr_wdata    [NUM_MSHRS];
-logic [WORD_BITS-1:0]    mshr_word_offset [NUM_MSHRS];
 logic [BLOCK_SIZE*8-1:0] mshr_block    [NUM_MSHRS];
+logic [WORDS_PER_BLOCK-1:0] mshr_store_mask [NUM_MSHRS];
+logic [BLOCK_SIZE*8-1:0]    mshr_store_data [NUM_MSHRS];
 logic [BLOCK_SIZE*8-1:0] install_block;
 
 localparam [1:0] MS_IDLE       = 2'b00;  // free
@@ -159,6 +160,8 @@ end
     // Tag from TLB
     logic [TAG_SIZE-1:0] incoming_tag;
     assign incoming_tag = tlb_paddr[PA_WIDTH-1 -: TAG_SIZE];
+    logic [PA_WIDTH-1:0] incoming_line_paddr;
+    assign incoming_line_paddr = {tlb_paddr[PA_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
     logic hit;
     logic [$clog2(L1_WAYS)-1:0] hit_way;
 
@@ -195,10 +198,9 @@ end
                 mshr_state[i]       <= MS_IDLE;
                 mshr_paddr[i]       <= '0;
                 mshr_index[i]       <= '0;
-                mshr_is_write[i]    <= '0;
-                mshr_wdata[i]       <= '0;
-                mshr_word_offset[i] <= '0;
                 mshr_block[i]       <= '0;
+                mshr_store_mask[i]  <= '0;
+                mshr_store_data[i]  <= '0;
             end
             wb_head  <= '0;
             wb_tail  <= '0;
@@ -245,16 +247,21 @@ end
                             end
 
                             install_block = mshr_block[i];
-                            if (mshr_is_write[i]) begin
-                                install_block[mshr_word_offset[i] * DATA_WIDTH +: DATA_WIDTH] = mshr_wdata[i];
+                            // replace the parts we need
+                            for (int w = 0; w < WORDS_PER_BLOCK; w++) begin
+                                if (mshr_store_mask[i][w]) begin
+                                    install_block[w * DATA_WIDTH +: DATA_WIDTH] = mshr_store_data[i][w * DATA_WIDTH +: DATA_WIDTH];
+                                end
                             end
 
                             set_contents[mshr_index[i]][evict_way_l] <= install_block;
                             tags[mshr_index[i]][evict_way_l]         <= mshr_paddr[i][PA_WIDTH-1 -: TAG_SIZE];
                             set_valids[mshr_index[i]][evict_way_l]   <= 1'b1;
-                            set_dirty[mshr_index[i]][evict_way_l]    <= mshr_is_write[i];
+                            set_dirty[mshr_index[i]][evict_way_l]    <= (mshr_store_mask[i] != '0);
                             lru[mshr_index[i]]                       <= ~evict_way_l;
                             mshr_state[i]                            <= MS_IDLE;
+                            mshr_store_mask[i]                       <= '0;
+                            mshr_store_data[i]                       <= '0;
                             mshr_install_done = 1'b1;
                         end
                     end
@@ -284,14 +291,31 @@ end
                         state <= 3'd0;  // set to idle
                     end else begin
                         // MISS - go to MSHR
+                        mshr_dup = 1'b0; // find if dupblicate miss to line
+                        mshr_dup_idx = '0;
+                        for (int i = 0; i < NUM_MSHRS; i++) begin
+                            if (!mshr_dup && mshr_state[i] != MS_IDLE && mshr_paddr[i] == incoming_line_paddr) begin
+                                mshr_dup = 1'b1;
+                                mshr_dup_idx = i[$clog2(NUM_MSHRS)-1:0];
+                            end
+                        end
 
-                        if (!mshr_full) begin // if not full then
-                            mshr_paddr[mshr_free_idx]    <= tlb_paddr;
+                        // if we alr have miss duplicate, then update store data
+                        if (mshr_dup) begin
+                            if (curr_is_write) begin
+                                mshr_store_data[mshr_dup_idx][curr_word_offset * DATA_WIDTH +: DATA_WIDTH] <= curr_wdata;
+                                mshr_store_mask[mshr_dup_idx][curr_word_offset] <= 1'b1;
+                            end
+                        end else if (!mshr_full) begin // if not full then
+                            mshr_paddr[mshr_free_idx]    <= incoming_line_paddr;
                             mshr_index[mshr_free_idx]    <= curr_index;
-                            mshr_is_write[mshr_free_idx] <= curr_is_write;
-                            mshr_wdata[mshr_free_idx]    <= curr_wdata;
-                            mshr_word_offset[mshr_free_idx] <= curr_word_offset;
                             mshr_state[mshr_free_idx]    <= MS_UNRESOLVED;
+                            mshr_store_mask[mshr_free_idx] <= '0;
+                            mshr_store_data[mshr_free_idx] <= '0;
+                            if (curr_is_write) begin
+                                mshr_store_data[mshr_free_idx][curr_word_offset * DATA_WIDTH +: DATA_WIDTH] <= curr_wdata;
+                                mshr_store_mask[mshr_free_idx][curr_word_offset] <= 1'b1;
+                            end
                         end
 
                         state <= 3'd0;

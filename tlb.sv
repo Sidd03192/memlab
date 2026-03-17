@@ -12,7 +12,7 @@ module tlb (
     output logic [29:0] result_paddr
 );
 
-    logic [60:0] ways [16];
+    logic [54:0] ways [16];
     logic [15:0] lrumat [16];
     logic [3:0]  hit_index;
     logic [3:0]  free_index;
@@ -26,7 +26,7 @@ module tlb (
         free_found =  1'b0;
         
         for (int i = 0; i < 16; i++) begin
-            if (!hit_found && ways[i][60] && (ways[i][35:0] == vaddr[47:12])) begin
+            if (!hit_found && ways[i][54] && (ways[i][35:0] == vaddr[47:12])) begin
                 hit_found = 1'b1;
                 hit_index = i[3:0];
             end
@@ -51,7 +51,7 @@ module tlb (
             ready <= 0;
             if (is_tlb_fill) begin
                 // [v, paddr_tag, vaddr_tag], vaddr contains index and block
-                ways[free_index] <= {1'b1, paddr[29:6], vaddr[47:12]};
+                ways[free_index] <= {1'b1, paddr[29:12], vaddr[47:12]};
                 // update lrumat 
                 lrumat[free_index] <= {16{1'b1}};
                 for (int j = 0 ; j < 16; j++) begin
@@ -62,7 +62,7 @@ module tlb (
                 // tlb index
                 // Check valid bit and if the virtual addresses match (in always)
                 if (hit_found) begin
-                    result_paddr <= {ways[hit_index][59:36], vaddr[5:0]};
+                    result_paddr <= {ways[hit_index][53:36], vaddr[11:0]};
                     
                     // update lrumat 
                     lrumat[hit_index] <= {16{1'b1}};

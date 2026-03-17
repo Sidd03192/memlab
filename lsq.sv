@@ -79,7 +79,7 @@ module lsq #(
 
     logic [LQ_PTR_WIDTH - 1:0] lq_head, lq_tail;
 
-    assign lq_ready = ((lq_tail != lq_head) || (lq_state[lq_head] == LQ_EMPTY));
+    assign lq_ready = (lq_state[lq_tail] == LQ_EMPTY);
 
     // =========================================================================
     // STORE QUEUE STATE
@@ -101,7 +101,7 @@ module lsq #(
 
     logic [SQ_PTR_WIDTH - 1:0] sq_head, sq_tail;
 
-    assign sq_ready = ((sq_tail != sq_head) || (sq_state[sq_head] == SQ_EMPTY));
+    assign sq_ready = (sq_state[sq_tail] == SQ_EMPTY);
 
     // =========================================================================
     // LOAD ISSUE ARBITRATION
@@ -279,32 +279,51 @@ module lsq #(
             // -----------------------------------------------------------------
             // EA resolution
             // -----------------------------------------------------------------
-            if (op == RESOLVE) begin
+            if (valid_in && op == RESOLVE) begin
                 if (id_in < 4'd8) begin // loads assumed to have IDs 0-7, stores 8-15
+                    logic resolve_done;
+                    resolve_done = 1'b0;
                     for (int i = 0; i < LQ_ENTRIES; i++) begin
                         logic [LQ_PTR_WIDTH-1:0] idx;
                         idx = lq_head + i[LQ_PTR_WIDTH - 1:0];
-                        if (lq_id[idx] == id_in && lq_state[idx] == LQ_WAITING_ADDR) begin
+                        if (!resolve_done && lq_id[idx] == id_in && lq_state[idx] == LQ_WAITING_ADDR) begin
+                            if (vaddr_ready) begin
                             lq_vaddr[idx] <= vaddr_in;
                             lq_state[idx] <= LQ_WAITING_ISSUE;
+                            end
+                            resolve_done = 1'b1;
                         end
                     end
                 end
                 else begin
+                    logic resolve_done;
+                    resolve_done = 1'b0;
                     for (int i = 0; i < SQ_ENTRIES; i++) begin
                         logic [SQ_PTR_WIDTH-1:0] idx;
                         idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
-                        if (sq_id[idx] == id_in) begin
+                        if (!resolve_done && sq_id[idx] == id_in &&
+                            (sq_state[idx] == SQ_WAITING_ADDR ||
+                             sq_state[idx] == SQ_WAITING_DATA ||
+                             sq_state[idx] == SQ_UNRESOLVED)) begin
                             if (sq_state[idx] == SQ_WAITING_ADDR) begin
-                                sq_vaddr[idx] <= vaddr_in;
-                                sq_state[idx] <= SQ_WAITING_ISSUE;
+                                if (vaddr_ready) begin
+                                    sq_vaddr[idx] <= vaddr_in;
+                                    sq_state[idx] <= SQ_WAITING_ISSUE;
+                                end
                             end
                             else if (sq_state[idx] == SQ_WAITING_DATA) begin
-                                sq_wdata[idx] <= wdata_in;
-                                sq_state[idx] <= SQ_WAITING_ISSUE;
+                                if (wdata_ready) begin
+                                    sq_wdata[idx] <= wdata_in;
+                                    sq_state[idx] <= SQ_WAITING_ISSUE;
+                                end
                             end
                             else if (sq_state[idx] == SQ_UNRESOLVED) begin
-                                if (vaddr_ready) begin
+                                if (vaddr_ready && wdata_ready) begin
+                                    sq_vaddr[idx] <= vaddr_in;
+                                    sq_wdata[idx] <= wdata_in;
+                                    sq_state[idx] <= SQ_WAITING_ISSUE;
+                                end
+                                else if (vaddr_ready) begin
                                     sq_vaddr[idx] <= vaddr_in;
                                     sq_state[idx] <= SQ_WAITING_DATA;
                                 end
@@ -313,6 +332,7 @@ module lsq #(
                                     sq_state[idx] <= SQ_WAITING_ADDR;
                                 end
                             end
+                            resolve_done = 1'b1;
                         end
                     end
                 end
