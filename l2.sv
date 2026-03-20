@@ -66,6 +66,11 @@ module l2_cache #(
     logic [BLOCK_SIZE*8-1:0] mshr_block      [NUM_MSHRS];
     logic                    mshr_mem_issued [NUM_MSHRS];
     logic                    mshr_issued_one;
+    logic                    req_pending_valid;
+    logic [PA_WIDTH-1:0]     req_pending_paddr;
+    logic                    install_pending_valid;
+    logic [PA_WIDTH-1:0]     install_pending_paddr;
+    logic [BLOCK_SIZE*8-1:0] install_pending_block;
 
     // Writeback queue fifo to memory
     localparam int WB_DEPTH = NUM_MSHRS;
@@ -90,8 +95,8 @@ module l2_cache #(
     // Combinational: address decode for L1 request
     logic [INDEX_BITS-1:0] req_index;
     logic [TAG_SIZE-1:0]   req_tag;
-    assign req_index = l1_req_paddr[OFFSET_BITS +: INDEX_BITS];
-    assign req_tag   = l1_req_paddr[PA_WIDTH-1 -: TAG_SIZE];
+    assign req_index = req_pending_paddr[OFFSET_BITS +: INDEX_BITS];
+    assign req_tag   = req_pending_paddr[PA_WIDTH-1 -: TAG_SIZE];
     logic                          req_hit;
     logic [$clog2(L2_WAYS)-1:0]   req_hit_way;
     logic                          mshr_dup;
@@ -173,6 +178,12 @@ module l2_cache #(
                 mshr_block[i]      <= '0;
                 mshr_mem_issued[i] <= 1'b0;
             end
+
+            req_pending_valid <= 1'b0;
+            req_pending_paddr <= '0;
+            install_pending_valid <= 1'b0;
+            install_pending_paddr <= '0;
+            install_pending_block <= '0;
 
             // Reset writeback FIFO
             wb_head  <= '0;
@@ -273,69 +284,74 @@ module l2_cache #(
             end
             
 
-            // actually install the mshr block once we get it (1 cycle delay. )
-            mshr_install_done = 1'b0; // only do onec. 
-            for (int i = 0; i < NUM_MSHRS; i++) begin
-                // find first resolved block
-                if (!mshr_install_done && mshr_state[i] == MS_RESOLVED) begin
-                    // get data. 
-                    mshr_inst_index = mshr_paddr[i][OFFSET_BITS +: INDEX_BITS];
-                    mshr_inst_tag   = mshr_paddr[i][PA_WIDTH-1 -: TAG_SIZE];
-
-                    // find victim: invalid first
-                    mshr_inst_found_invalid = 1'b0;
-                    mshr_inst_victim = '0;
-                    for (int w = 0; w < L2_WAYS; w++) begin
-                        if (!set_valids[mshr_inst_index][w] && !mshr_inst_found_invalid) begin
-                            mshr_inst_victim = w[$clog2(L2_WAYS)-1:0];
-                            mshr_inst_found_invalid = 1'b1;
-                        end
-                    end
-
-                    // if no invalid, then do lru 
-                    if (!mshr_inst_found_invalid) begin
-                        for (int w = 0; w < L2_WAYS; w++) begin
-                            mshr_inst_is_lru = 1'b1;
-                            for (int j = 0; j < L2_WAYS; j++)
-                                if (j != w && lru_matrix[mshr_inst_index][w][j])
-                                    mshr_inst_is_lru = 1'b0;
-                            if (mshr_inst_is_lru)
-                                mshr_inst_victim = w[$clog2(L2_WAYS)-1:0];
-                        end
-                    end
-
-
-                    // reuse logic for kicking smtg out. 
-                    mshr_inst_victim_dirty = set_dirty[mshr_inst_index][mshr_inst_victim] &&
-                                            set_valids[mshr_inst_index][mshr_inst_victim];
-
-                    if (!(mshr_inst_victim_dirty && wb_full)) begin
-                        if (mshr_inst_victim_dirty) begin
-                            wb_push       = 1'b1;
-                            wb_push_paddr = {tags[mshr_inst_index][mshr_inst_victim], mshr_inst_index, {OFFSET_BITS{1'b0}}};
-                            wb_push_data  = set_contents[mshr_inst_index][mshr_inst_victim];
-                        end
-
-                        set_contents[mshr_inst_index][mshr_inst_victim] <= mshr_block[i];
-                        tags[mshr_inst_index][mshr_inst_victim]         <= mshr_inst_tag;
-                        set_valids[mshr_inst_index][mshr_inst_victim]   <= 1'b1;
-                        set_dirty[mshr_inst_index][mshr_inst_victim]    <= 1'b0; // clean fill
-
-                        for (int k = 0; k < L2_WAYS; k++) begin
-                            lru_matrix[mshr_inst_index][mshr_inst_victim][k] <= 1'b1;
-                            lru_matrix[mshr_inst_index][k][mshr_inst_victim] <= 1'b0;
-                        end
-
-                        // return to L1
-                        l1_data_valid <= 1'b1;
-                        l1_data_paddr <= mshr_paddr[i];
-                        l1_data       <= mshr_block[i];
-
-                        // free the mshr entry. 
+            // Stage 1: capture one resolved fill into a small holding register.
+            mshr_install_done = 1'b0;
+            if (!install_pending_valid) begin
+                for (int i = 0; i < NUM_MSHRS; i++) begin
+                    if (!mshr_install_done && mshr_state[i] == MS_RESOLVED) begin
+                        install_pending_valid <= 1'b1;
+                        install_pending_paddr <= mshr_paddr[i];
+                        install_pending_block <= mshr_block[i];
                         mshr_state[i] <= MS_IDLE;
                         mshr_mem_issued[i] <= 1'b0;
                         mshr_install_done = 1'b1;
                     end
+                end
+            end
+
+            // Stage 2: install the captured fill on the following cycle.
+            if (install_pending_valid) begin
+                mshr_inst_index = install_pending_paddr[OFFSET_BITS +: INDEX_BITS];
+                mshr_inst_tag   = install_pending_paddr[PA_WIDTH-1 -: TAG_SIZE];
+
+                // find victim: invalid first
+                mshr_inst_found_invalid = 1'b0;
+                mshr_inst_victim = '0;
+                for (int w = 0; w < L2_WAYS; w++) begin
+                    if (!set_valids[mshr_inst_index][w] && !mshr_inst_found_invalid) begin
+                        mshr_inst_victim = w[$clog2(L2_WAYS)-1:0];
+                        mshr_inst_found_invalid = 1'b1;
+                    end
+                end
+
+                // if no invalid, then do lru
+                if (!mshr_inst_found_invalid) begin
+                    for (int w = 0; w < L2_WAYS; w++) begin
+                        mshr_inst_is_lru = 1'b1;
+                        for (int j = 0; j < L2_WAYS; j++)
+                            if (j != w && lru_matrix[mshr_inst_index][w][j])
+                                mshr_inst_is_lru = 1'b0;
+                        if (mshr_inst_is_lru)
+                            mshr_inst_victim = w[$clog2(L2_WAYS)-1:0];
+                    end
+                end
+
+                // reuse logic for kicking smtg out.
+                mshr_inst_victim_dirty = set_dirty[mshr_inst_index][mshr_inst_victim] &&
+                                        set_valids[mshr_inst_index][mshr_inst_victim];
+
+                if (!(mshr_inst_victim_dirty && wb_full)) begin
+                    if (mshr_inst_victim_dirty) begin
+                        wb_push       = 1'b1;
+                        wb_push_paddr = {tags[mshr_inst_index][mshr_inst_victim], mshr_inst_index, {OFFSET_BITS{1'b0}}};
+                        wb_push_data  = set_contents[mshr_inst_index][mshr_inst_victim];
+                    end
+
+                    set_contents[mshr_inst_index][mshr_inst_victim] <= install_pending_block;
+                    tags[mshr_inst_index][mshr_inst_victim]         <= mshr_inst_tag;
+                    set_valids[mshr_inst_index][mshr_inst_victim]   <= 1'b1;
+                    set_dirty[mshr_inst_index][mshr_inst_victim]    <= 1'b0; // clean fill
+
+                    for (int k = 0; k < L2_WAYS; k++) begin
+                        lru_matrix[mshr_inst_index][mshr_inst_victim][k] <= 1'b1;
+                        lru_matrix[mshr_inst_index][k][mshr_inst_victim] <= 1'b0;
+                    end
+
+                    // return to L1
+                    l1_data_valid <= 1'b1;
+                    l1_data_paddr <= install_pending_paddr;
+                    l1_data       <= install_pending_block;
+                    install_pending_valid <= 1'b0;
                 end
             end
 
@@ -344,7 +360,7 @@ module l2_cache #(
 
 
 
-            if (l1_req_valid) begin // handle MSHR of l1 
+            if (req_pending_valid) begin // handle the registered L1 request
                 // find it in l1 
                 req_hit = 1'b0;
                 req_hit_way = '0;
@@ -358,13 +374,14 @@ module l2_cache #(
                 if (req_hit) begin
                     // send the output back on wires. 
                     l1_data_valid <= 1'b1;
-                    l1_data_paddr <= l1_req_paddr;
+                    l1_data_paddr <= req_pending_paddr;
                     l1_data       <= set_contents[req_index][req_hit_way];
                     // update LRU
                     for (int i = 0; i < L2_WAYS; i++) begin
                         lru_matrix[req_index][req_hit_way][i] <= 1'b1;
                         lru_matrix[req_index][i][req_hit_way] <= 1'b0;
                     end
+                    req_pending_valid <= 1'b0;
                 end
                 else begin
                     // miss — check for duplicate, then allocate MSHR
@@ -374,7 +391,7 @@ module l2_cache #(
 
                     for (int i = 0; i < NUM_MSHRS; i++) begin
                         // duplicate check: already tracking this address
-                        if (mshr_state[i] != MS_IDLE && mshr_paddr[i] == l1_req_paddr)
+                        if (mshr_state[i] != MS_IDLE && mshr_paddr[i] == req_pending_paddr)
                             mshr_dup = 1'b1;
                         // find first free slot
                         if (mshr_state[i] == MS_IDLE && mshr_full_l2) begin
@@ -385,12 +402,20 @@ module l2_cache #(
 
                     if (!mshr_dup && !mshr_full_l2) begin
                         mshr_state[mshr_free_idx] <= MS_UNRESOLVED;
-                        mshr_paddr[mshr_free_idx] <= l1_req_paddr;
+                        mshr_paddr[mshr_free_idx] <= req_pending_paddr;
                         mshr_mem_issued[mshr_free_idx] <= 1'b0;
+                        req_pending_valid <= 1'b0;
+                    end else if (mshr_dup) begin
+                        req_pending_valid <= 1'b0;
                     end
                     // if dup: already in flight, L1 will get data when MSHR resolves
                     // if full: L1 must retry
                 end
+            end
+
+            if (!req_pending_valid && l1_req_valid) begin
+                req_pending_valid <= 1'b1;
+                req_pending_paddr <= l1_req_paddr;
             end
 
 
