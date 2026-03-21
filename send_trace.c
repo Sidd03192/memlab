@@ -95,6 +95,7 @@ static void wait_for_ready(void *trace_base)
  */
 static void send_trace_record(void *trace_base, const uint32_t chunk[4])
 {
+    printf("Waiting for ready\n");
     /* ── Step 1: wait for hardware to be ready ───────────────────────── */
     wait_for_ready(trace_base);
 
@@ -106,16 +107,29 @@ static void send_trace_record(void *trace_base, const uint32_t chunk[4])
         if (addr == 3)
             data &= CHUNK3_MASK;
 
-        mmio_write(trace_base, OFF_TRACE_ADDR, (uint32_t)addr);
+        printf("Writing Addr: 0x%x\n", addr);
+        /* set chunk select */
+        mmio_write(trace_base, OFF_TRACE_ADDR, addr);
+
+        printf("Addr Written: 0x%x\n", mmio_read(trace_base, OFF_TRACE_ADDR));
+
+        printf("Writing Data Chunk: 0x%x\n", data);
+        /* write data — this pulses trace_data_write_pulse in the RTL
+        which clocks the chunk into trace_line on the next rising edge */
         mmio_write(trace_base, OFF_TRACE_DATA, data);
+
+        printf("Data Written: 0x%x\n", mmio_read(trace_base, OFF_TRACE_DATA));
+
+        usleep(1);
     }
 
+    printf("Asserting Valid\n");
     /* ── Step 3: assert trace_valid — triggers trace_fire in RTL ─────── */
     mmio_write(trace_base, OFF_TRACE_VALID, 1u);
 
-    /* ── Step 4: wait for hardware to acknowledge the fire ───────────── */
-    wait_for_ready(trace_base);
+    usleep(1);
 
+    printf("De-asserting valid\n");
     /* ── Step 5: de-assert trace_valid ──────────────────────────────── */
     mmio_write(trace_base, OFF_TRACE_VALID, 0u);
 }
