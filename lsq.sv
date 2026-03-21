@@ -169,7 +169,7 @@ module lsq #(
                 sq_found       = 1'b1;
                 sq_found_entry = idx;
             end
-            else if (!sq_unresolved && !sq_found && (sq_state[idx] == SQ_WAITING_ADDR || sq_state[idx] == SQ_UNRESOLVED)) begin
+            else if (!sq_unresolved && !sq_found && (sq_state[idx] == SQ_WAITING_ADDR || sq_state[idx] == SQ_UNRESOLVED || sq_state[idx] == SQ_WAITING_DATA)) begin
                 sq_unresolved = 1'b1;
             end
         end
@@ -202,19 +202,19 @@ module lsq #(
                 end
             end
         end
-        for (int i = 0; i < SQ_ENTRIES; i++) begin
-            logic [SQ_PTR_WIDTH-1:0] idx;
-            idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
-            if (sq_found) begin
-                if (idx == sq_found_entry) begin
-                    terminate_loop = 1'b1;
-                end
-                else if (!terminate_loop && !unresolved_val_store && (sq_vaddr[sq_found_entry] == sq_vaddr[idx]) && sq_state[idx] == SQ_WAITING_DATA) begin
-                    unresolved_val_store = 1'b1;
-                    terminate_loop = 1'b1;
-                end
-            end
-        end
+        // for (int i = 0; i < SQ_ENTRIES; i++) begin
+        //     logic [SQ_PTR_WIDTH-1:0] idx;
+        //     idx = sq_head + i[SQ_PTR_WIDTH - 1:0];
+        //     if (sq_found) begin
+        //         if (idx == sq_found_entry) begin
+        //             terminate_loop = 1'b1;
+        //         end
+        //         else if (!terminate_loop && !unresolved_val_store && (sq_vaddr[sq_found_entry] == sq_vaddr[idx]) && sq_state[idx] == SQ_WAITING_DATA) begin
+        //             unresolved_val_store = 1'b1;
+        //             terminate_loop = 1'b1;
+        //         end
+        //     end
+        // end
     end
 
     // =========================================================================
@@ -344,7 +344,7 @@ module lsq #(
             if (l1_ready && tlb_ready) begin
                 if (lq_found && !is_unresolved_store 
                 && (lq_before_vec[lq_found_entry][sq_head] == 1'b0 
-                || (!sq_found) || (sq_found && (is_unresolved_load || unresolved_val_store 
+                || (!sq_found) || (sq_found && (is_unresolved_load 
                 || lq_before_vec[lq_found_entry][sq_found_entry] == 1'b0)))) begin
                     issue_vaddr <= lq_vaddr[lq_found_entry];
                     lq_state[lq_found_entry] <= LQ_EMPTY;
@@ -359,7 +359,7 @@ module lsq #(
                     issue_op <= LOAD;
                     valid_out <= 1'b1;
                 end
-            else if (sq_found && !is_unresolved_load && !unresolved_val_store 
+            else if (sq_found && !is_unresolved_load 
                 && (sq_before_vec[sq_found_entry][lq_head] == 1'b0 
                 || (!lq_found) || (lq_found && (is_unresolved_store 
                 || sq_before_vec[sq_found_entry][lq_found_entry] == 1'b0)))) begin
