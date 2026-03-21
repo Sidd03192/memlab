@@ -188,8 +188,8 @@ module lsq #(
 
     always_comb begin
         is_unresolved_load = 1'b0;
-        unresolved_val_store = 1'b0;
-        terminate_loop = 1'b0;
+        // unresolved_val_store = 1'b0;
+        // terminate_loop = 1'b0;
         for (int i = 0; i < LQ_ENTRIES; i++) begin
             logic [LQ_PTR_WIDTH - 1:0] idx;
             idx = lq_head + i[LQ_PTR_WIDTH - 1:0];
