@@ -48,6 +48,7 @@ module lsq_tb;
     logic                    lq_ready;
     logic                    sq_ready;
     logic                    valid_out;
+    logic                    issue_candidate_valid;
     logic [VA_WIDTH-1:0]     issue_vaddr;
     logic [DATA_WIDTH-1:0]   issue_wdata;
     logic [2:0]              issue_op;
@@ -76,6 +77,7 @@ module lsq_tb;
         .lq_ready    (lq_ready),
         .sq_ready    (sq_ready),
         .valid_out   (valid_out),
+        .issue_candidate_valid(issue_candidate_valid),
         .issue_vaddr (issue_vaddr),
         .issue_wdata (issue_wdata),
         .issue_op    (issue_op)

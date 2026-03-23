@@ -589,7 +589,8 @@ module tb_memsys_v2;
                     end
                 end
 
-                // All MSHRs idle, caches idle, both WB FIFOs empty, TLB ready, LSQ not issuing
+                // All frontend queues, MSHRs, and writeback FIFOs must be empty
+                // before the final architectural state is compared.
                 if (dut.u_l1.mshr_state[0] == L1_MS_IDLE &&
                     dut.u_l1.mshr_state[1] == L1_MS_IDLE &&
                     dut.u_l1.state == 3'd0 &&
@@ -597,9 +598,12 @@ module tb_memsys_v2;
                     dut.u_l2.mshr_state[1] == L2_MS_IDLE &&
                     dut.u_l2.mshr_state[2] == L2_MS_IDLE &&
                     dut.u_l2.mshr_state[3] == L2_MS_IDLE &&
+                    dut.issue_buf_empty &&
                     dut.u_l1.wb_empty &&
                     dut.u_l2.wb_empty &&
                     dut.u_tlb.ready &&
+                    !dut.u_tlb.lookup_pending_valid &&
+                    !dut.u_tlb.valid &&
                     !dut.u_lsq.valid_out &&
                     lsq_quiescent) begin
                     done = 1'b1;

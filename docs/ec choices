@@ -1,0 +1,4 @@
+Extra credit choices
+Parameterization: L2 cache: sets, associativity, MSHRs, tag lengths,
+l1 cache and l2 cahce are both pipelined. More info can be found in pipelining.txt
+

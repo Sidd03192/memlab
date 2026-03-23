@@ -30,12 +30,14 @@
 // Pipeline behaviour and all interfaces are identical to the original.
 // =============================================================================
 module l2_cache #(
+    parameter PA_WIDTH    = 30,
+    parameter DATA_WIDTH  = 64,
+    parameter BLOCK_SIZE  = 64,
     parameter L2_CAPACITY = 4096,
     parameter L2_WAYS     = 4,
-    parameter BLOCK_SIZE  = 64,
+    parameter L2_SETS     = L2_CAPACITY / (BLOCK_SIZE * L2_WAYS),
     parameter NUM_MSHRS   = 4,
-    parameter PA_WIDTH    = 30,
-    parameter DATA_WIDTH  = 64
+    parameter L2_TAG_SIZE = PA_WIDTH - $clog2(L2_SETS) - $clog2(BLOCK_SIZE)
 )(
     input  logic                    clk,
     input  logic                    rst_n,
@@ -71,12 +73,11 @@ module l2_cache #(
     // =========================================================================
     // Geometry
     // =========================================================================
-    localparam int L2_SETS     = L2_CAPACITY / (BLOCK_SIZE * L2_WAYS); // 16
-    localparam int INDEX_BITS  = $clog2(L2_SETS);                       //  4
-    localparam int OFFSET_BITS = $clog2(BLOCK_SIZE);                    //  6
-    localparam int TAG_SIZE    = PA_WIDTH - INDEX_BITS - OFFSET_BITS;   // 20
-    localparam int LINE_W      = BLOCK_SIZE * 8;                        // 512
-    localparam int WAY_BITS    = $clog2(L2_WAYS);                       //  2
+    localparam int INDEX_BITS  = $clog2(L2_SETS);      // 4
+    localparam int OFFSET_BITS = $clog2(BLOCK_SIZE);   // 6
+    localparam int TAG_SIZE    = L2_TAG_SIZE;          // 20
+    localparam int LINE_W      = BLOCK_SIZE * 8;       // 512
+    localparam int WAY_BITS    = $clog2(L2_WAYS);      // 2
 
     // =========================================================================
     // PLRU — 3 bits per set (binary tree, 4-way)

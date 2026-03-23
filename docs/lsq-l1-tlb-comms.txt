@@ -1,0 +1,56 @@
+How the LSQ, L1, and TLB communicate cauase its lowk a lil complicated. 
+
+The main idea is that the LSQ decides what memory op is ready to go next,
+but it does not talk directly to the TLB or L1 in a fully one cycle way.
+Instead, memsys sits in the middle and holds the request long enough so
+the same op can be seen by both the TLB and the L1 pipeline correctly.
+
+Justification for additional buffer: L1 wants the index stage first from the virtual address,
+then one cycle later the TLB gives back the physical address bits
+that L1 needs for the tag check.
+So even though it feels like "just send it to both", there still has to be
+a stable place where the request lives while those two parts happen.
+
+The flow is basically this:
+The LSQ looks for the oldest memory op that is safe to issue.
+If memsys has room, the LSQ hands over the request information like
+vaddr, op type, and store data if it is a store.
+Memsys puts that request into a very small 2 entry issue buffer.
+
+From there, the head of that buffer is what gets launched.
+When L1 is not stalled and there is no TLB fill conflict,
+memsys sends start_index to L1 and also starts the TLB lookup
+for that same request in the same general launch step.
+L1 saves the index side of the request in its one entry index buffer.
+
+Then one cycle later the TLB returns the translated physical address.
+That return drives start_tag into L1.
+At that point L1 combines the buffered request metadata with the returned
+physical address and does the actual tag compare and hit or miss handling.
+
+The reason this now pipelines cleanly is that while request A is being used
+in the L1 tag stage, memsys can already be launching request B into the L1
+index stage.
+So one request can be in "indexing" while another is in "tagging".
+
+We chose to keep a tiny issue buffer in memsys because it is the simplest
+clean way to make that overlap safe.
+Without that buffer, the frontend could move on to a new LSQ request too early
+and the TLB result for one op could get mixed up with the L1 metadata from
+another op.
+
+We also added a small reserved slot idea in memsys.
+That is there because the LSQ handshake and the actual arrival of the issued
+request into memsys are off by a cycle.
+So memsys needs to count not only the requests already sitting in the buffer,
+but also the one that has been accepted and is about to arrive.
+That keeps us from overbooking the 2 entry buffer and dropping a request.
+
+So in a high level:
+LSQ decides what is ready.
+Memsys holds and schedules it.
+TLB provides the translated address one cycle later.
+L1 uses the early virtual-address indexing plus the later physical tag bits
+to do the cache access in two stages.
+
+

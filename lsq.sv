@@ -46,6 +46,7 @@ module lsq #(
     output logic                            lq_ready,
     output logic                            sq_ready,
     output logic                            valid_out,
+    output logic                            issue_candidate_valid,
 
     // MEM issue — exposed so higher module can drive TLB/L1 with correct vaddr
     output logic [VA_WIDTH-1:0]             issue_vaddr,
@@ -217,6 +218,18 @@ module lsq #(
         // end
     end
 
+    wire lq_can_issue = lq_found && !is_unresolved_store &&
+                        (lq_before_vec[lq_found_entry][sq_head] == 1'b0 ||
+                         (!sq_found) || (sq_found && (is_unresolved_load ||
+                         lq_before_vec[lq_found_entry][sq_found_entry] == 1'b0)));
+
+    wire sq_can_issue = sq_found && !is_unresolved_load &&
+                        (sq_before_vec[sq_found_entry][lq_head] == 1'b0 ||
+                         (!lq_found) || (lq_found && (is_unresolved_store ||
+                         sq_before_vec[sq_found_entry][lq_found_entry] == 1'b0)));
+
+    assign issue_candidate_valid = lq_can_issue || sq_can_issue;
+
     // =========================================================================
     // SEQUENTIAL LOGIC
     // =========================================================================
@@ -357,10 +370,7 @@ module lsq #(
             // Dismissal — L1 and TLB both accepted
             // -----------------------------------------------------------------
             if (l1_ready && tlb_ready) begin
-                if (lq_found && !is_unresolved_store 
-                && (lq_before_vec[lq_found_entry][sq_head] == 1'b0 
-                || (!sq_found) || (sq_found && (is_unresolved_load 
-                || lq_before_vec[lq_found_entry][sq_found_entry] == 1'b0)))) begin
+                if (lq_can_issue) begin
                     issue_vaddr <= lq_vaddr[lq_found_entry];
                     lq_state[lq_found_entry] <= LQ_EMPTY;
                     for (int i = 0; i < SQ_ENTRIES; i++) begin
@@ -374,10 +384,7 @@ module lsq #(
                     issue_op <= LOAD;
                     valid_out <= 1'b1;
                 end
-            else if (sq_found && !is_unresolved_load 
-                && (sq_before_vec[sq_found_entry][lq_head] == 1'b0 
-                || (!lq_found) || (lq_found && (is_unresolved_store 
-                || sq_before_vec[sq_found_entry][lq_found_entry] == 1'b0)))) begin
+            else if (sq_can_issue) begin
                     issue_vaddr <= sq_vaddr[sq_found_entry];
                     issue_wdata <= sq_wdata[sq_found_entry];
                     sq_state[sq_found_entry] <= SQ_EMPTY;

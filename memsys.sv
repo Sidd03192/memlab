@@ -133,21 +133,36 @@ module memory_subsystem #(
     logic                       lsq_valid_to_l1;
     logic [DATA_WIDTH-1:0]      lsq_wdata_to_l1;
     logic [2:0]                 lsq_issue_op;
+    logic                       lsq_issue_candidate_valid;
     logic                       lsq_lq_ready;
     logic                       lsq_sq_ready;
 
-    // One-entry issue buffer decouples LSQ dequeue from L1/TLB launch.
-    logic                    issue_buf_valid;
-    logic [VA_WIDTH-1:0]     issue_buf_vaddr;
-    logic [DATA_WIDTH-1:0]   issue_buf_wdata;
-    logic [2:0]              issue_buf_op;
-    wire                     issue_buf_empty = !issue_buf_valid;
+    // updated to bigger 2-entry buffer  lets LSQ stay one request ahead while the current
+    // request is launched to the TLB/L1 pipeline.
+    localparam int ISSUE_BUF_DEPTH = 2;
+    localparam int ISSUE_BUF_PTR_W = (ISSUE_BUF_DEPTH > 1) ? $clog2(ISSUE_BUF_DEPTH) : 1;
+
+    logic [VA_WIDTH-1:0]     issue_buf_vaddr_q [ISSUE_BUF_DEPTH];
+    logic [DATA_WIDTH-1:0]   issue_buf_wdata_q [ISSUE_BUF_DEPTH];
+    logic [2:0]              issue_buf_op_q    [ISSUE_BUF_DEPTH];
+    logic [ISSUE_BUF_PTR_W-1:0] issue_buf_head;
+    logic [ISSUE_BUF_PTR_W-1:0] issue_buf_tail;
+    logic [ISSUE_BUF_PTR_W:0]   issue_buf_count;
+    logic                       issue_buf_reserved;
+    wire                     issue_buf_empty = (issue_buf_count == '0);
+    wire [ISSUE_BUF_PTR_W+1:0] issue_buf_used = issue_buf_count + issue_buf_reserved;
+    wire                     issue_buf_full  = (issue_buf_used >= ISSUE_BUF_DEPTH);
+    wire [VA_WIDTH-1:0]      issue_buf_vaddr = issue_buf_vaddr_q[issue_buf_head];
+    wire [DATA_WIDTH-1:0]    issue_buf_wdata = issue_buf_wdata_q[issue_buf_head];
+    wire [2:0]               issue_buf_op    = issue_buf_op_q[issue_buf_head];
     wire                     issue_buf_is_write = (issue_buf_op == OP_MEM_STORE);
 
-    wire launch_issue_now = issue_buf_valid && !is_tlb_fill_now && !l1_busy_to_lsq && tlb_ready;
+    wire launch_issue_now = !issue_buf_empty && !is_tlb_fill_now && !l1_busy_to_lsq && tlb_ready;
 
-    // lsq only dq when empyty
-    wire lsq_issue_slot_ready = issue_buf_empty;
+    // Count both buffered requests and the one-cycle-delayed LSQ issue that has
+    // already consumed a slot but has not reached this FIFO yet.
+    wire [ISSUE_BUF_PTR_W+1:0] issue_buf_used_after_launch = issue_buf_used - launch_issue_now;
+    wire lsq_issue_slot_ready = (issue_buf_used_after_launch < ISSUE_BUF_DEPTH);
 
 // send on ready
 
@@ -198,6 +213,7 @@ module memory_subsystem #(
         .lq_ready       (lsq_lq_ready),
         .sq_ready       (lsq_sq_ready),
         .valid_out      (lsq_valid_to_l1),
+        .issue_candidate_valid(lsq_issue_candidate_valid),
         .issue_vaddr    (lsq_vaddr_to_l1),
         .issue_wdata    (lsq_wdata_to_l1),
         .issue_op       (lsq_issue_op)
@@ -347,24 +363,37 @@ module memory_subsystem #(
         end
     endgenerate
 
-// comb logic to handle issue buffer. 
+// FIFO that decouples LSQ dequeue from TLB/L1 launch. Requests are always
+// launched in-order from the head entry.
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            issue_buf_valid <= 1'b0;
-            issue_buf_vaddr <= '0;
-            issue_buf_wdata <= '0;
-            issue_buf_op    <= '0;
+            issue_buf_head  <= '0;
+            issue_buf_tail  <= '0;
+            issue_buf_count <= '0;
+            issue_buf_reserved <= 1'b0;
+            for (int i = 0; i < ISSUE_BUF_DEPTH; i++) begin
+                issue_buf_vaddr_q[i] <= '0;
+                issue_buf_wdata_q[i] <= '0;
+                issue_buf_op_q[i]    <= '0;
+            end
         end else begin
             if (launch_issue_now) begin
-                issue_buf_valid <= 1'b0;
+                issue_buf_head <= issue_buf_head + 1'b1;
             end
 
             if (lsq_valid_to_l1) begin
-                issue_buf_valid <= 1'b1;
-                issue_buf_vaddr <= lsq_vaddr_to_l1;
-                issue_buf_wdata <= lsq_wdata_to_l1;
-                issue_buf_op    <= lsq_issue_op;
+                issue_buf_vaddr_q[issue_buf_tail] <= lsq_vaddr_to_l1;
+                issue_buf_wdata_q[issue_buf_tail] <= lsq_wdata_to_l1;
+                issue_buf_op_q[issue_buf_tail]    <= lsq_issue_op;
+                issue_buf_tail                    <= issue_buf_tail + 1'b1;
             end
+
+            if (lsq_valid_to_l1 && !launch_issue_now)
+                issue_buf_count <= issue_buf_count + 1'b1;
+            else if (!lsq_valid_to_l1 && launch_issue_now)
+                issue_buf_count <= issue_buf_count - 1'b1;
+
+            issue_buf_reserved <= lsq_issue_candidate_valid && lsq_issue_slot_ready;
         end
     end
 

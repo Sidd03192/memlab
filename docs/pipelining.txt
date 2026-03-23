@@ -1,0 +1,20 @@
+How the pipelining works for l1
+Basically we replaced the curr_* with a one entry
+index buffer that can consue request A on start_tag
+while capturing request B on start_index in the same cycle. 
+
+We also only stall when the one entry buffer cant accept a new index or all MSHRs are full. 
+on trying to update them. This way we can keep taking in requests
+even if MSHRs are full in the case that there are duplicate requests
+
+Writeback is still once per cycle update. 
+
+Flow of two tage l1 pipeline. 
+start_index captures the request’s set index, word offset, write bit, and write data into the one-entry buffer.
+Later, when start_tag arrives from the TLB, L1 uses the buffered metadata plus tlb_paddr to do the tag compare and hit/miss handling.
+If start_tag for request A happens in the same cycle as start_index for request B, A is consumed and B is loaded into the buffer immediately after. That is the two-stage overlap.
+
+l2 pipelinging is sligtly different. L2 isn't a simple two staged pipeline like l1. 
+Instead, it has 3 stages and its data is RAM read synchronous (because of the CLB limit errors we got) so data comes back in acycle after the 
+read address (in line 122). So basically we have one part when we read from the bram and then the other when we actually find out what we read and assign output wires. 
+It's still fairly similar though. 
