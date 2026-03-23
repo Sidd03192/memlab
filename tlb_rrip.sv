@@ -13,12 +13,14 @@ module tlb (
 );
 
     logic [54:0] ways [16];
-    logic [1:0]  rripmat [16];
+    logic [15:0] rripmat [16];
     logic [1:0]  rrip_out [16];
     logic [3:0]  hit_index;
     logic [3:0]  free_index;
     logic        hit_found;
     logic        free_found;
+    logic        lookup_pending_valid;
+    logic [29:0] lookup_pending_paddr;
 
     always_comb begin
         logic [1:0] rrip_temp [16];
@@ -92,41 +94,46 @@ module tlb (
     always_ff @(posedge clk or negedge rst_n) begin
 
         if (!rst_n) begin
-            // clear array and set everything to :(
-            ready <= 1;
-            valid <= 0;
+            // Hit-only, one-cycle-latency model: TLB stays ready and returns
+            // lookup results on the following cycle.
+            ready <= 1'b1;
+            valid <= 1'b0;
+            result_paddr <= '0;
+            lookup_pending_valid <= 1'b0;
+            lookup_pending_paddr <= '0;
             for (int i = 0; i < 16; i++) begin
                 ways[i] <= '0;
                 rripmat[i] <= '1;
             end
-        end else if (start) begin
-            ready <= 0;
-            if (is_tlb_fill) begin
+        end else begin
+            ready <= 1'b1;
+            valid <= lookup_pending_valid;
+            if (lookup_pending_valid) begin
+                result_paddr <= lookup_pending_paddr;
+            end
+
+            lookup_pending_valid <= 1'b0;
+
+            if (start && is_tlb_fill) begin
                 // [v, paddr_tag, vaddr_tag], vaddr contains index and block
                 ways[free_index] <= {1'b1, paddr[29:12], vaddr[47:12]};
 
-                // update rripmat, adding line so set to 3
+               // update rripmat, adding line so set to 2
                 for (int i = 0; i < 16; i++) begin
                     rripmat[i] <= rrip_out[i];
                 end
-                rripmat[free_index] <= {2'b11};
-                
-            end else begin
-                // tlb index
-                // Check valid bit and if the virtual addresses match (in always)
+                rripmat[free_index] <= {2'b10};
+            end else if (start) begin
+                lookup_pending_valid <= hit_found;
+                lookup_pending_paddr <= {ways[hit_index][53:36], vaddr[11:0]};
+
                 if (hit_found) begin
-                    result_paddr <= {ways[hit_index][53:36], vaddr[11:0]};
-                    
                     // update rripmat, hit a line so set to 0 
                     rripmat[hit_index] <= {2'b00};
                 end
             end
-    
-            valid <= ~is_tlb_fill; // tell l1 if we have an output
-        end else begin
-            ready <= 1;
-            valid <= 0;
         end
     end
 endmodule
+
 
