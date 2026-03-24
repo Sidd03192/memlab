@@ -5,6 +5,10 @@ module memory_subsystem_avl_wrapper #(
     parameter BLOCK_SIZE  = 64,
     parameter TRACE_WIDTH = 121,
     parameter LSQ_ENTRIES = 16,
+    parameter LQ_ENTRIES  = LSQ_ENTRIES / 2,
+    // Give the FPGA path a deeper store side so bursts of unresolved stores
+    // do not immediately block the host-driven trace stream.
+    parameter SQ_ENTRIES  = LSQ_ENTRIES,
     parameter TLB_ENTRIES = 16,
     parameter L1_CAPACITY = 512,
     parameter L1_WAYS     = 2,
@@ -97,6 +101,8 @@ module memory_subsystem_avl_wrapper #(
         .BLOCK_SIZE    (BLOCK_SIZE),
         .TRACE_WIDTH   (TRACE_WIDTH),
         .LSQ_ENTRIES   (LSQ_ENTRIES),
+        .LQ_ENTRIES    (LQ_ENTRIES),
+        .SQ_ENTRIES    (SQ_ENTRIES),
         .TLB_ENTRIES   (TLB_ENTRIES),
         .L1_CAPACITY   (L1_CAPACITY),
         .L1_WAYS       (L1_WAYS),

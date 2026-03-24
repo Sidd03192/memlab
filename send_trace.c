@@ -29,12 +29,6 @@ static inline uint32_t mmio_read(void *base, uint32_t byte_off)
     return *((volatile uint32_t *)((uint8_t *)base + byte_off));
 }
 
-static void wait_for_ready(void *trace_base)
-{
-    while ((mmio_read(trace_base, OFF_TRACE_READY) & 1u) == 0u)
-        ;
-}
-
 static void wait_for_accept(void *trace_base)
 {
     while (mmio_read(trace_base, OFF_TRACE_VALID) & 1u)
@@ -43,8 +37,6 @@ static void wait_for_accept(void *trace_base)
 
 static void send_trace_record(void *trace_base, const uint32_t chunk[4])
 {
-    wait_for_ready(trace_base);
-
     for (uint8_t addr = 0; addr < CHUNKS_PER_TRACE; addr++) {
         uint32_t data = chunk[addr];
 
@@ -56,9 +48,10 @@ static void send_trace_record(void *trace_base, const uint32_t chunk[4])
     }
 
     /*
-     * Submit exactly one trace request. The Avalon wrapper auto-clears this
-     * register after one successful trace_valid/trace_ready handshake so the
-     * same record cannot be re-fired while software is still running.
+     * Match the simulation testbench protocol: load the full packet first,
+     * then submit exactly one trace request. The Avalon wrapper auto-clears
+     * this register after one successful trace_valid/trace_ready handshake so
+     * the same record cannot be re-fired while software is still running.
      */
     mmio_write(trace_base, OFF_TRACE_VALID, 1u);
     wait_for_accept(trace_base);

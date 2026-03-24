@@ -24,6 +24,8 @@ module memory_subsystem #(
 
     // Component sizes
     parameter LSQ_ENTRIES   = 16,
+    parameter LQ_ENTRIES    = LSQ_ENTRIES / 2,
+    parameter SQ_ENTRIES    = LSQ_ENTRIES / 2,
     parameter TLB_ENTRIES   = 16,
     parameter L1_CAPACITY   = 512,      
     parameter L1_WAYS       = 2,
@@ -172,8 +174,8 @@ module memory_subsystem #(
     logic [BLOCK_SIZE*8-1:0]    l2_l1_data;
 
     lsq #(
-        .LQ_ENTRIES     (LSQ_ENTRIES / 2),  // 8 loads
-        .SQ_ENTRIES     (LSQ_ENTRIES / 2),  // 8 stores
+        .LQ_ENTRIES     (LQ_ENTRIES),
+        .SQ_ENTRIES     (SQ_ENTRIES),
         .VA_WIDTH       (VA_WIDTH),
         .DATA_WIDTH     (DATA_WIDTH)
     ) u_lsq (

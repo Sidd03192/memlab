@@ -303,10 +303,10 @@ module lsq #(
                         idx = lq_head + i[LQ_PTR_WIDTH - 1:0];
                         if (!resolve_done && lq_id[idx] == id_in && lq_state[idx] == LQ_WAITING_ADDR) begin
                             if (vaddr_ready) begin
-                            lq_vaddr[idx] <= vaddr_in;
-                            lq_state[idx] <= LQ_WAITING_ISSUE;
+                                lq_vaddr[idx] <= vaddr_in;
+                                lq_state[idx] <= LQ_WAITING_ISSUE;
+                                resolve_done = 1'b1;
                             end
-                            resolve_done = 1'b1;
                         end
                     end
                 end
@@ -324,12 +324,14 @@ module lsq #(
                                 if (vaddr_ready) begin
                                     sq_vaddr[idx] <= vaddr_in;
                                     sq_state[idx] <= SQ_WAITING_ISSUE;
+                                    resolve_done = 1'b1;
                                 end
                             end
                             else if (sq_state[idx] == SQ_WAITING_DATA) begin
                                 if (wdata_ready) begin
                                     sq_wdata[idx] <= wdata_in;
                                     sq_state[idx] <= SQ_WAITING_ISSUE;
+                                    resolve_done = 1'b1;
                                 end
                             end
                             else if (sq_state[idx] == SQ_UNRESOLVED) begin
@@ -337,17 +339,19 @@ module lsq #(
                                     sq_vaddr[idx] <= vaddr_in;
                                     sq_wdata[idx] <= wdata_in;
                                     sq_state[idx] <= SQ_WAITING_ISSUE;
+                                    resolve_done = 1'b1;
                                 end
                                 else if (vaddr_ready) begin
                                     sq_vaddr[idx] <= vaddr_in;
                                     sq_state[idx] <= SQ_WAITING_DATA;
+                                    resolve_done = 1'b1;
                                 end
                                 else if (wdata_ready) begin
                                     sq_wdata[idx] <= wdata_in;
                                     sq_state[idx] <= SQ_WAITING_ADDR;
+                                    resolve_done = 1'b1;
                                 end
                             end
-                            resolve_done = 1'b1;
                         end
                     end
                 end
