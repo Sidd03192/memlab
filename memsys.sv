@@ -68,21 +68,8 @@ module memory_subsystem #(
     input  logic        avm_waitrequest,
 
     // Debug visibility for FPGA wrapper
-    output logic                        dbg_trace_fire,
-    output logic [2:0]                  dbg_trace_op,
-    output logic                        dbg_lsq_lq_ready,
     output logic                        dbg_lsq_sq_ready,
-    output logic                        dbg_l1_busy_to_lsq,
-    output logic                        dbg_issue_buf_valid,
-    output logic                        dbg_l1_mshr_full,
-    output logic [2:0]                  dbg_l1_state,
-    output logic                        dbg_l2_req_pending_valid,
-    output logic                        dbg_l2_install_pending_valid,
-    output logic                        dbg_duplicate_store_id,
-    output logic [$clog2(LSQ_ENTRIES/2)-1:0] dbg_sq_head,
-    output logic [$clog2(LSQ_ENTRIES/2)-1:0] dbg_sq_tail,
-    output logic [(LSQ_ENTRIES/2)*3-1:0] dbg_sq_state_flat,
-    output logic [(LSQ_ENTRIES/2)*4-1:0] dbg_sq_id_flat
+    output logic                        dbg_l1_mshr_full
 );
     
     // Trace format (121 bits):
@@ -188,21 +175,9 @@ module memory_subsystem #(
     logic                       l2_l1_data_valid;
     logic [PA_WIDTH-1:0]        l2_l1_data_paddr;
     logic [BLOCK_SIZE*8-1:0]    l2_l1_data;
-    logic                       dbg_l2_req_pending_valid_int;
-    logic                       dbg_l2_install_pending_valid_int;
     logic                       dbg_l1_mshr_full_int;
-    logic [2:0]                 dbg_l1_state_int;
-
-    assign dbg_trace_fire              = trace_fire;
-    assign dbg_trace_op                = trace_op;
-    assign dbg_lsq_lq_ready            = lsq_lq_ready;
     assign dbg_lsq_sq_ready            = lsq_sq_ready;
-    assign dbg_l1_busy_to_lsq          = l1_busy_to_lsq;
-    assign dbg_issue_buf_valid         = issue_buf_valid;
     assign dbg_l1_mshr_full            = dbg_l1_mshr_full_int;
-    assign dbg_l1_state                = dbg_l1_state_int;
-    assign dbg_l2_req_pending_valid    = dbg_l2_req_pending_valid_int;
-    assign dbg_l2_install_pending_valid = dbg_l2_install_pending_valid_int;
 
     lsq #(
         .LQ_ENTRIES     (LSQ_ENTRIES / 2),  // 8 loads
@@ -232,12 +207,7 @@ module memory_subsystem #(
         .valid_out      (lsq_valid_to_l1),
         .issue_vaddr    (lsq_vaddr_to_l1),
         .issue_wdata    (lsq_wdata_to_l1),
-        .issue_op       (lsq_issue_op),
-        .dbg_sq_head    (dbg_sq_head),
-        .dbg_sq_tail    (dbg_sq_tail),
-        .dbg_sq_state_flat(dbg_sq_state_flat),
-        .dbg_sq_id_flat (dbg_sq_id_flat),
-        .dbg_duplicate_store_id(dbg_duplicate_store_id)
+        .issue_op       (lsq_issue_op)
     );
 
     tlb u_tlb (
@@ -286,8 +256,7 @@ module memory_subsystem #(
         .l2_data_valid  (l2_l1_data_valid),
         .l2_data_paddr  (l2_l1_data_paddr),
         .l2_data        (l2_l1_data),
-        .dbg_mshr_full  (dbg_l1_mshr_full_int),
-        .dbg_state      (dbg_l1_state_int)
+        .dbg_mshr_full  (dbg_l1_mshr_full_int)
     );
 
     // MEMORY INTERFACE
@@ -320,9 +289,6 @@ module memory_subsystem #(
                                            (l2_mem_resp_paddr == read_paddr);
             assign l2_l1_data_paddr      = l2_mem_resp_paddr;
             assign l2_l1_data            = l2_mem_resp_rdata;
-            assign dbg_l2_req_pending_valid_int     = read_inflight;
-            assign dbg_l2_install_pending_valid_int = 1'b0;
-
             always_ff @(posedge clk or negedge rst_n) begin
                 if (!rst_n) begin
                     read_inflight <= 1'b0;
@@ -372,9 +338,7 @@ module memory_subsystem #(
                 // From memory
                 .mem_resp_valid (l2_mem_resp_valid),
                 .mem_resp_paddr (l2_mem_resp_paddr),
-                .mem_resp_rdata (l2_mem_resp_rdata),
-                .dbg_req_pending_valid(dbg_l2_req_pending_valid_int),
-                .dbg_install_pending_valid(dbg_l2_install_pending_valid_int)
+                .mem_resp_rdata (l2_mem_resp_rdata)
             );
         end
     endgenerate

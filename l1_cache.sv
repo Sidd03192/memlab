@@ -40,8 +40,7 @@ module l1_cache #(
     input  logic [BLOCK_SIZE*8-1:0] l2_data,                // the actual block data
 
     // Debug visibility for FPGA wrapper
-    output logic                    dbg_mshr_full,
-    output logic [2:0]              dbg_state
+    output logic                    dbg_mshr_full
     
 
     //TODO: MSHR + Reset Buffer
@@ -117,7 +116,6 @@ logic [BLOCK_SIZE*8-1:0] victim_data;
 assign wb_empty = (wb_count == '0);
 assign wb_full  = (wb_count == WB_DEPTH);
 assign dbg_mshr_full = mshr_full;
-assign dbg_state     = state;
 
 // Oldest queued writeback drives the L2 output port.
 assign l2_wb_valid = !wb_empty;
