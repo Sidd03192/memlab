@@ -1,19 +1,19 @@
 `timescale 1ns/1ps
-//TODO: set ready to take in inputs from lsq as output for lsq.
 module l1_cache #(
     parameter L1_CAPACITY   = 512,
     parameter L1_WAYS       = 2,
     parameter BLOCK_SIZE    = 64,
     parameter NUM_MSHRS     = 2,
+    parameter ENABLE_NEXTLINE_PREFETCH = 1'b0, // for testing purposes :)
     parameter VA_WIDTH      = 48,
     parameter PA_WIDTH      = 30,
     parameter DATA_WIDTH    = 64
 )(
-    input  logic                        clk,
-    input  logic                        rst_n,
+    input  logic clk,
+    input  logic rst_n,
 
     // FROM TLB
-    input  logic                        start_tag,          // TLB has valid output
+    input  logic start_tag,          // TLB has valid output
     input  logic [PA_WIDTH-1:0]         tlb_paddr,          // Physical address from TLB
 
     // from lsq
@@ -86,11 +86,28 @@ logic [INDEX_BITS-1:0]   mshr_index    [NUM_MSHRS];
 logic [BLOCK_SIZE*8-1:0] mshr_block    [NUM_MSHRS];
 logic [WORDS_PER_BLOCK-1:0] mshr_store_mask [NUM_MSHRS];
 logic [BLOCK_SIZE*8-1:0]    mshr_store_data [NUM_MSHRS];
+logic                       mshr_is_prefetch [NUM_MSHRS];
 logic [BLOCK_SIZE*8-1:0] install_block;
 logic                         mshr_full;
 logic [$clog2(NUM_MSHRS)-1:0] mshr_free_idx;
 
-localparam [1:0] MS_IDLE       = 2'b00;  // free
+// ------------------------- Logic for Prefetcher
+// if we have somethign ready to send to l2
+logic                    pf_pending_valid;
+logic [PA_WIDTH-1:0]     pf_pending_paddr;   
+
+// Data for the predicted next line + metadata
+logic                    pf_candidate_valid;  // current load can create prefetch
+logic [PA_WIDTH-1:0]     pf_candidate_paddr;  // predicted next-line address
+
+logic                    pf_candidate_blocked; //if predicted line in l2 or alr pending
+logic                    pf_pending_blocked;   // missed & still wainting for l2
+// Control signals out
+logic                    pf_demand_unresolved; // priority
+logic                    pf_issue_now;         // send pending prefetch now
+logic                    pf_drop_pending;      // pending prefetch became stale
+
+localparam [1:0] MS_IDLE  = 2'b00;  // free
 localparam [1:0] MS_UNRESOLVED = 2'b01;  // waiting for L2
 localparam [1:0] MS_RESOLVED   = 2'b10;  // L2 returned
 
@@ -147,6 +164,16 @@ end
 
 // ------------------
 
+// if MSHR full, dont worry about prefetching
+always_comb begin
+    pf_demand_unresolved = 1'b0;
+    for (int i = 0; i < NUM_MSHRS; i++) begin
+        
+        if (mshr_state[i] == MS_UNRESOLVED && !mshr_is_prefetch[i])
+            pf_demand_unresolved = 1'b1;
+    end
+end
+
 ///////////////////// Combinational logic to find empty spot in MSHR
 always_comb begin
     mshr_full     = 1'b1;
@@ -183,6 +210,63 @@ end
             end
         end
     end
+// ----------------- Prefetching logic ___________--------------- :)
+
+    // choose next block sorry nate but this too easy :)
+    assign pf_candidate_paddr = incoming_line_paddr + BLOCK_SIZE;
+    // Only do prefetching for deand rqs that are loads 
+    assign pf_candidate_valid = ENABLE_NEXTLINE_PREFETCH && consume_index_req && !req_is_write;
+
+    always_comb begin
+        logic pf_candidate_hit_l; // in l1
+        logic pf_candidate_mshr_dup_l; // in mshr
+        logic pf_pending_hit_l; 
+        logic pf_pending_mshr_dup_l;
+
+        pf_candidate_hit_l      = 1'b0;
+        pf_candidate_mshr_dup_l = 1'b0;
+        pf_pending_hit_l        = 1'b0;
+        pf_pending_mshr_dup_l   = 1'b0;
+
+        for (int w = 0; w < L1_WAYS; w++) begin
+            // dont prefetch if next line alr in l1
+            if (set_valids[pf_candidate_paddr[OFFSET_BITS +: INDEX_BITS]][w] &&
+                tags[pf_candidate_paddr[OFFSET_BITS +: INDEX_BITS]][w] ==
+                pf_candidate_paddr[PA_WIDTH-1 -: TAG_SIZE]) begin
+                pf_candidate_hit_l = 1'b1;
+            end
+
+            // recheck queued prefetch incase we can use it :)
+            if (set_valids[pf_pending_paddr[OFFSET_BITS +: INDEX_BITS]][w] &&
+                tags[pf_pending_paddr[OFFSET_BITS +: INDEX_BITS]][w] ==
+                pf_pending_paddr[PA_WIDTH-1 -: TAG_SIZE]) begin
+                pf_pending_hit_l = 1'b1;
+            end
+        end
+
+        // check through mshrs
+        for (int i = 0; i < NUM_MSHRS; i++) begin
+            if (mshr_state[i] != MS_IDLE && mshr_paddr[i] == pf_candidate_paddr)
+                pf_candidate_mshr_dup_l = 1'b1;
+            if (mshr_state[i] != MS_IDLE && mshr_paddr[i] == pf_pending_paddr)
+                pf_pending_mshr_dup_l = 1'b1;
+        end
+
+        pf_candidate_blocked = pf_candidate_hit_l || pf_candidate_mshr_dup_l;
+        pf_pending_blocked   = pf_pending_hit_l || pf_pending_mshr_dup_l;
+    end
+    // drop if got demand 
+    assign pf_drop_pending = pf_pending_valid &&
+                             ((consume_index_req && incoming_line_paddr == pf_pending_paddr) ||
+                              pf_pending_blocked);
+
+    // if everything above is good issue. 
+    assign pf_issue_now = ENABLE_NEXTLINE_PREFETCH &&
+                          pf_pending_valid &&
+                          !pf_drop_pending &&
+                          !mshr_full &&
+                          !pf_demand_unresolved &&
+                          !(consume_index_req && !hit && !mshr_dup && !mshr_full);
 ////////////////////////////////////////////////////////////////////
 
 
@@ -195,6 +279,8 @@ end
             req_is_write    <= '0;
             req_wdata       <= '0;
             req_word_offset <= '0;
+            pf_pending_valid <= 1'b0;
+            pf_pending_paddr <= '0;
             for (int i = 0; i < L1_SETS; i++) begin
                 set_valids[i] <= '0;
                 set_dirty[i]  <= '0;
@@ -207,6 +293,7 @@ end
                 mshr_block[i]       <= '0;
                 mshr_store_mask[i]  <= '0;
                 mshr_store_data[i]  <= '0;
+                mshr_is_prefetch[i] <= 1'b0;
             end
             wb_head  <= '0;
             wb_tail  <= '0;
@@ -262,6 +349,7 @@ end
                         mshr_state[i]                            <= MS_IDLE;
                         mshr_store_mask[i]                       <= '0;
                         mshr_store_data[i]                       <= '0;
+                        mshr_is_prefetch[i]                      <= 1'b0;
                         mshr_install_done = 1'b1;
                     end
                 end
@@ -284,7 +372,12 @@ end
                         end
                     end
 
+                    // if we get demand for qqueued,remove it
+                    if (pf_pending_valid && pf_pending_paddr == incoming_line_paddr)
+                        pf_pending_valid <= 1'b0;
+
                     if (mshr_dup) begin
+                        mshr_is_prefetch[mshr_dup_idx] <= 1'b0; 
                         if (req_is_write) begin
                             mshr_store_data[mshr_dup_idx][req_word_offset * DATA_WIDTH +: DATA_WIDTH] <= req_wdata;
                             mshr_store_mask[mshr_dup_idx][req_word_offset] <= 1'b1;
@@ -295,12 +388,36 @@ end
                         mshr_state[mshr_free_idx]      <= MS_UNRESOLVED;
                         mshr_store_mask[mshr_free_idx] <= '0;
                         mshr_store_data[mshr_free_idx] <= '0;
+                        mshr_is_prefetch[mshr_free_idx] <= 1'b0;
                         if (req_is_write) begin
                             mshr_store_data[mshr_free_idx][req_word_offset * DATA_WIDTH +: DATA_WIDTH] <= req_wdata;
                             mshr_store_mask[mshr_free_idx][req_word_offset] <= 1'b1;
                         end
                     end
                 end
+            end
+// prefetch logic sequential part.
+            // handle combinationally set things basically
+            if (pf_drop_pending)
+                pf_pending_valid <= 1'b0;
+
+            if (pf_issue_now) begin
+                // put in mshr
+                mshr_paddr[mshr_free_idx]       <= pf_pending_paddr;
+                mshr_index[mshr_free_idx]       <= pf_pending_paddr[OFFSET_BITS +: INDEX_BITS];
+                mshr_state[mshr_free_idx]       <= MS_UNRESOLVED;
+                mshr_store_mask[mshr_free_idx]  <= '0;
+                mshr_store_data[mshr_free_idx]  <= '0;
+                mshr_is_prefetch[mshr_free_idx] <= 1'b1;
+                pf_pending_valid                <= 1'b0;
+            end
+            // set wires
+            if (pf_candidate_valid &&
+                !pf_candidate_blocked &&
+                (!pf_pending_valid || pf_drop_pending || pf_issue_now)) begin
+                // Keep only one queued next-line at a time in v1.
+                pf_pending_valid <= 1'b1;
+                pf_pending_paddr <= pf_candidate_paddr;
             end
 
             if (accept_index_req) begin

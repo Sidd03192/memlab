@@ -21,6 +21,8 @@
 
 module tb_memsys_v2;
 
+    parameter bit ENABLE_PREFETCH = 1'b0;
+
     localparam int VA_WIDTH          = 48;
     localparam int PA_WIDTH          = 30;
     localparam int DATA_WIDTH        = 64;
@@ -83,6 +85,10 @@ module tb_memsys_v2;
     integer checker_error_cnt;
     integer records_seen;
     integer mem_ops_seen;
+    integer l1_demand_misses;
+    integer l1_load_misses;
+    integer l1_store_misses;
+    integer l1_prefetch_issues;
     integer records_sent;
     integer mismatch_prints;
 
@@ -132,7 +138,9 @@ module tb_memsys_v2;
     integer                   pending_count [0:READ_PENDING_DEPTH-1];
 
     //===== DUT Instantiation =====
-    memory_subsystem dut (
+    memory_subsystem #(
+        .ENABLE_L1_NEXTLINE_PREFETCH(ENABLE_PREFETCH)
+    ) dut (
         .clk             (clk),
         .rst_n           (rst_n),
         .trace_data      (trace_data),
@@ -158,6 +166,30 @@ module tb_memsys_v2;
             cycle_ctr <= 0;
         else
             cycle_ctr <= cycle_ctr + 1;
+    end
+
+    //===== Cache Stats =====
+    // MPKI here uses memory operations seen by the tracebench (loads + stores)
+    // as the instruction count proxy, since this testbench does not model
+    // non-memory instructions.
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            l1_demand_misses  <= 0;
+            l1_load_misses    <= 0;
+            l1_store_misses   <= 0;
+            l1_prefetch_issues <= 0;
+        end else begin
+            if (dut.u_l1.consume_index_req && !dut.u_l1.hit) begin
+                l1_demand_misses <= l1_demand_misses + 1;
+                if (dut.u_l1.req_is_write)
+                    l1_store_misses <= l1_store_misses + 1;
+                else
+                    l1_load_misses <= l1_load_misses + 1;
+            end
+
+            if (dut.u_l1.pf_issue_now)
+                l1_prefetch_issues <= l1_prefetch_issues + 1;
+        end
     end
 
     //===== Hash Function =====
@@ -767,6 +799,10 @@ module tb_memsys_v2;
 
     //===== Main Testbench =====
     initial begin
+        real l1_mpki;
+        real l1_load_mpki;
+        real l1_store_mpki;
+
         $dumpfile("tb_memsys_v2.vcd");
         $dumpvars(0, tb_memsys_v2);
 
@@ -775,6 +811,10 @@ module tb_memsys_v2;
         checker_error_cnt = 0;
         records_seen      = 0;
         mem_ops_seen      = 0;
+        l1_demand_misses  = 0;
+        l1_load_misses    = 0;
+        l1_store_misses   = 0;
+        l1_prefetch_issues = 0;
         records_sent      = 0;
         mismatch_prints   = 0;
         trace_limit       = 5000;
@@ -803,6 +843,7 @@ module tb_memsys_v2;
         $display("========================================");
         $display("TB_MEMSYS_V2 — Trace-Driven Testbench");
         $display("========================================");
+        $display("PREFETCH EN   : %0d", ENABLE_PREFETCH);
         $display("TRACE FILE     : %0s", trace_file);
         $display("TRACE LIMIT    : %0d", trace_limit);
         $display("TIMEOUT CYCLES : %0d", timeout_cycles);
@@ -846,12 +887,29 @@ module tb_memsys_v2;
         if (checker_error_cnt != 0)
             fail_cnt = fail_cnt + checker_error_cnt;
 
+        if (mem_ops_seen > 0) begin
+            l1_mpki       = (1000.0 * l1_demand_misses) / mem_ops_seen;
+            l1_load_mpki  = (1000.0 * l1_load_misses) / mem_ops_seen;
+            l1_store_mpki = (1000.0 * l1_store_misses) / mem_ops_seen;
+        end else begin
+            l1_mpki       = 0.0;
+            l1_load_mpki  = 0.0;
+            l1_store_mpki = 0.0;
+        end
+
         $display("========================================");
         $display("TB_MEMSYS_V2 Summary");
         $display("========================================");
         $display("  records_seen      = %0d", records_seen);
         $display("  records_sent      = %0d", records_sent);
         $display("  mem_ops_seen      = %0d", mem_ops_seen);
+        $display("  l1_demand_misses  = %0d", l1_demand_misses);
+        $display("  l1_load_misses    = %0d", l1_load_misses);
+        $display("  l1_store_misses   = %0d", l1_store_misses);
+        $display("  l1_prefetch_issues= %0d", l1_prefetch_issues);
+        $display("  l1_mpki           = %0.3f", l1_mpki);
+        $display("  l1_load_mpki      = %0.3f", l1_load_mpki);
+        $display("  l1_store_mpki     = %0.3f", l1_store_mpki);
         $display("  checker_errors    = %0d", checker_error_cnt);
         $display("  mismatches        = %0d", mismatch_prints);
         $display("  pass_count        = %0d", pass_cnt);

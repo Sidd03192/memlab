@@ -28,6 +28,7 @@ module memory_subsystem #(
     parameter L1_CAPACITY   = 512,      
     parameter L1_WAYS       = 2,
     parameter L1_MSHRS      = 2,
+    parameter ENABLE_L1_NEXTLINE_PREFETCH = 1'b0,
     parameter L2_CAPACITY   = 4096,     
     parameter L2_WAYS       = 4,
     parameter L2_MSHRS      = 4,
@@ -237,7 +238,13 @@ module memory_subsystem #(
     );
     l1_cache #(
         .L1_CAPACITY    (L1_CAPACITY),
-        .L1_WAYS        (L1_WAYS)
+        .L1_WAYS        (L1_WAYS),
+        .NUM_MSHRS      (L1_MSHRS),
+        .BLOCK_SIZE     (BLOCK_SIZE),
+        .VA_WIDTH       (VA_WIDTH),
+        .PA_WIDTH       (PA_WIDTH),
+        .DATA_WIDTH     (DATA_WIDTH),
+        .ENABLE_NEXTLINE_PREFETCH (ENABLE_L1_NEXTLINE_PREFETCH)
     ) u_l1 (
         .clk            (clk),
         .rst_n          (rst_n),

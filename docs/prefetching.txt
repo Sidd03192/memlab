@@ -1,0 +1,65 @@
+How next line prefetching works :)
+
+We have a simple next line prefetcher
+We don't add a new path between l1 and l2, we just reuse the normal l1 miss path and the normal fill path to avoid extra complexity
+
+TLDR
+- ignores stores
+- computes the current cache line
+- predicts the next sequential cache line
+- tries to fetch that next line early
+
+Step by step on how it wrks
+
+1. A load enters l1.
+
+2. L1 completes the normal lookup for that load.
+
+
+3. L1 computes the current cache line address.
+we can drop alst 6 bits of address
+
+4. L1 computes the next line. (prefetcher)
+
+5.  checks whether this prefetch is worth keeping.
+It does not keep or issue the prefetch for the follwing tree cases
+- alr in l1 or mshr
+- the prefetch slot is already busy (only keep one)
+
+6. If it passes those checks, l1 stores the address in a one entry pending prefetch slot.
+This is just a queued candidate.
+It is not a real miss request yet.
+
+7. L1 waits until demand traffic leaves room.
+Demand misses always have priority over prefetches in this version.
+The queued prefetch will not issue if:
+- a real demand miss is already unresolved
+- a demand miss is being allocated in the same cycle
+- no mshr is free
+
+8. When it is safe, l1 issues the prefetch using the normal miss machinery.
+It allocates a normal mshr and marks that mshr as a prefetch internally.
+This is why the design stays low invasive.
+
+Then its pretty straight forwared
+
+
+Based on our testing, below are our results...
+
+
+No prefetch:
+mem_ops_seen = 3774
+l1_demand_misses = 1147
+l1_load_misses = 1074
+l1_store_misses = 73
+l1_prefetch_issues = 0
+l1_mpki = 303.922
+
+Prefetch :
+mem_ops_seen = 3774
+l1_demand_misses = 1219
+l1_load_misses = 1143
+l1_store_misses = 76
+l1_prefetch_issues = 687
+l1_mpki = 322.999
+We got a 6.3% improvement :) isnt that cool!
