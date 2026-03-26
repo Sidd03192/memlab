@@ -66,7 +66,7 @@ module l2_sdram_master (
     // Internal registers
     // -------------------------------------------------------------------------
     logic [28:0] r_addr;
-    logic [2:0]  burst_cnt;
+    logic [2:0] burst_cnt;
     logic [63:0] r_val_burst [0:7];
 
     // Slice write data into 8 x 64-bit bursts

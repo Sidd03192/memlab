@@ -14,12 +14,12 @@ module tlb (
 
     logic [54:0] ways [16];
     logic [15:0] rripmat [16];
-    logic [1:0]  rrip_out [16];
-    logic [3:0]  hit_index;
-    logic [3:0]  free_index;
-    logic        hit_found;
-    logic        free_found;
-    logic        lookup_pending_valid;
+    logic [1:0] rrip_out [16];
+    logic [3:0] hit_index;
+    logic [3:0] free_index;
+    logic hit_found;
+    logic free_found;
+    logic lookup_pending_valid;
     logic [29:0] lookup_pending_paddr;
 
     always_comb begin
@@ -135,5 +135,4 @@ module tlb (
         end
     end
 endmodule
-
 

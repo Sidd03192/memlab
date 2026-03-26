@@ -62,50 +62,50 @@ module l1_cache #(
 
     // One-entry index-stage buffer. `state` stays as a compatibility/debug
     // signal for benches that only care whether the request slot is occupied.
-logic [2:0] state ;
-logic                   req_valid;
-logic [INDEX_BITS-1:0]  req_index;
-logic                   req_is_write;
-logic [DATA_WIDTH-1:0]  req_wdata;
-logic [WORD_BITS-1:0]   req_word_offset; // which 64-bit word within the block for hit/miss updates
-logic                   mshr_dup;
+logic [2:0] state;
+logic req_valid;
+logic [INDEX_BITS-1:0] req_index;
+logic req_is_write;
+logic [DATA_WIDTH-1:0] req_wdata;
+logic [WORD_BITS-1:0] req_word_offset; // which 64-bit word within the block for hit/miss updates
+logic mshr_dup;
 logic [$clog2(NUM_MSHRS)-1:0] mshr_dup_idx;
-logic                   consume_index_req;
-logic                   can_accept_index_req;
-logic                   accept_index_req;
+logic consume_index_req;
+logic can_accept_index_req;
+logic accept_index_req;
 
 
-logic                evict_way_l;
+logic evict_way_l;
 logic [PA_WIDTH-1:0] evict_pa;
-logic                mshr_install_done; // flag to process only one RESOLVED slot per cycle (replaces break)
+logic mshr_install_done; // flag to process only one RESOLVED slot per cycle (replaces break)
 
 // ------------------------- Logic for MSHR
 logic [1:0] mshr_state [NUM_MSHRS];
-logic [PA_WIDTH-1:0]     mshr_paddr    [NUM_MSHRS];
-logic [INDEX_BITS-1:0]   mshr_index    [NUM_MSHRS];
-logic [BLOCK_SIZE*8-1:0] mshr_block    [NUM_MSHRS];
+logic [PA_WIDTH-1:0] mshr_paddr [NUM_MSHRS];
+logic [INDEX_BITS-1:0] mshr_index [NUM_MSHRS];
+logic [BLOCK_SIZE*8-1:0] mshr_block [NUM_MSHRS];
 logic [WORDS_PER_BLOCK-1:0] mshr_store_mask [NUM_MSHRS];
-logic [BLOCK_SIZE*8-1:0]    mshr_store_data [NUM_MSHRS];
-logic                       mshr_is_prefetch [NUM_MSHRS];
+logic [BLOCK_SIZE*8-1:0] mshr_store_data [NUM_MSHRS];
+logic mshr_is_prefetch [NUM_MSHRS];
 logic [BLOCK_SIZE*8-1:0] install_block;
-logic                         mshr_full;
+logic mshr_full;
 logic [$clog2(NUM_MSHRS)-1:0] mshr_free_idx;
 
 // ------------------------- Logic for Prefetcher
 // if we have somethign ready to send to l2
-logic                    pf_pending_valid;
-logic [PA_WIDTH-1:0]     pf_pending_paddr;   
+logic pf_pending_valid;
+logic [PA_WIDTH-1:0] pf_pending_paddr;
 
 // Data for the predicted next line + metadata
-logic                    pf_candidate_valid;  // current load can create prefetch
-logic [PA_WIDTH-1:0]     pf_candidate_paddr;  // predicted next-line address
+logic pf_candidate_valid;  // current load can create prefetch
+logic [PA_WIDTH-1:0] pf_candidate_paddr;  // predicted next-line address
 
-logic                    pf_candidate_blocked; //if predicted line in l2 or alr pending
-logic                    pf_pending_blocked;   // missed & still wainting for l2
+logic pf_candidate_blocked; //if predicted line in l2 or alr pending
+logic pf_pending_blocked;   // missed & still wainting for l2
 // Control signals out
-logic                    pf_demand_unresolved; // priority
-logic                    pf_issue_now;         // send pending prefetch now
-logic                    pf_drop_pending;      // pending prefetch became stale
+logic pf_demand_unresolved; // priority
+logic pf_issue_now;         // send pending prefetch now
+logic pf_drop_pending;      // pending prefetch became stale
 
 localparam [1:0] MS_IDLE  = 2'b00;  // free
 localparam [1:0] MS_UNRESOLVED = 2'b01;  // waiting for L2
@@ -117,19 +117,19 @@ localparam [1:0] MS_RESOLVED   = 2'b10;  // L2 returned
 localparam int WB_DEPTH = 2;
 localparam int WB_PTR_W = (WB_DEPTH > 1) ? $clog2(WB_DEPTH) : 1;
 
-logic [PA_WIDTH-1:0]     wb_paddr_q [WB_DEPTH];
-logic [BLOCK_SIZE*8-1:0] wb_data_q  [WB_DEPTH];
-logic [WB_PTR_W-1:0]     wb_head;
-logic [WB_PTR_W-1:0]     wb_tail;
-logic [WB_PTR_W:0]       wb_count;
-logic                    wb_push;
-logic [PA_WIDTH-1:0]     wb_push_paddr;
+logic [PA_WIDTH-1:0] wb_paddr_q [WB_DEPTH];
+logic [BLOCK_SIZE*8-1:0] wb_data_q [WB_DEPTH];
+logic [WB_PTR_W-1:0] wb_head;
+logic [WB_PTR_W-1:0] wb_tail;
+logic [WB_PTR_W:0] wb_count;
+logic wb_push;
+logic [PA_WIDTH-1:0] wb_push_paddr;
 logic [BLOCK_SIZE*8-1:0] wb_push_data;
-logic                    wb_pop;
-logic                    wb_empty;
-logic                    wb_full;
-logic                    victim_dirty;
-logic [PA_WIDTH-1:0]     victim_paddr;
+logic wb_pop;
+logic wb_empty;
+logic wb_full;
+logic victim_dirty;
+logic [PA_WIDTH-1:0] victim_paddr;
 logic [BLOCK_SIZE*8-1:0] victim_data;
 
 assign wb_empty = (wb_count == '0);
@@ -220,7 +220,7 @@ end
     always_comb begin
         logic pf_candidate_hit_l; // in l1
         logic pf_candidate_mshr_dup_l; // in mshr
-        logic pf_pending_hit_l; 
+        logic pf_pending_hit_l;
         logic pf_pending_mshr_dup_l;
 
         pf_candidate_hit_l      = 1'b0;

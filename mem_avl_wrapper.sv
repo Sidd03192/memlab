@@ -40,10 +40,10 @@ module memory_subsystem_avl_wrapper #(
     input  logic        avm_readdatavalid,
     input  logic        avm_waitrequest
 );
-    logic [1:0]  trace_addr_reg;
+    logic [1:0] trace_addr_reg;
     logic [31:0] trace_data_reg;
-    logic        trace_valid_reg;
-    logic        trace_ready_wire;
+    logic trace_valid_reg;
+    logic trace_ready_wire;
 
     // Pulse high for exactly one cycle when trace_data is written.
     // This is what actually clocks the chunk into trace_line inside

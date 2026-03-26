@@ -1,17 +1,5 @@
 `timescale 1ns/1ps
 
-//==============================================================================
-// MEMORY SUBSYSTEM - Top Level Module
-//==============================================================================
-// This module instantiates and connects:
-//   1. LSQ            - Load-Store Queue (16 entries)
-//   2. TLB            - Translation Lookaside Buffer (16 entries)
-//   3. L1 Cache       - PIVT, 512B, 2-way, 2 MSHRs
-//   4. L2 Cache       - PIPT, 4KB, 4-way, 4 MSHRs
-//   5. Memory         - Interface to physical memory (array or DRAM)
-//
-// Trace parsing is done inline (no separate module needed).
-//==============================================================================
 
 module memory_subsystem #(
     parameter VA_WIDTH      = 48,       
@@ -129,14 +117,14 @@ module memory_subsystem #(
     wire is_tlb_fill_now = trace_fire && is_tlb_fill;
 
     // LSQ → issue buffer wires
-    logic                       l1_busy_to_lsq;
-    logic [VA_WIDTH-1:0]        lsq_vaddr_to_l1;
-    logic                       lsq_valid_to_l1;
-    logic [DATA_WIDTH-1:0]      lsq_wdata_to_l1;
-    logic [2:0]                 lsq_issue_op;
-    logic                       lsq_issue_candidate_valid;
-    logic                       lsq_lq_ready;
-    logic                       lsq_sq_ready;
+    logic l1_busy_to_lsq;
+    logic [VA_WIDTH-1:0] lsq_vaddr_to_l1;
+    logic lsq_valid_to_l1;
+    logic [DATA_WIDTH-1:0] lsq_wdata_to_l1;
+    logic [2:0] lsq_issue_op;
+    logic lsq_issue_candidate_valid;
+    logic lsq_lq_ready;
+    logic lsq_sq_ready;
 
     // updated to bigger 2-entry buffer  lets LSQ stay one request ahead while the current
     // request is launched to the TLB/L1 pipeline.
@@ -149,7 +137,7 @@ module memory_subsystem #(
     logic [ISSUE_BUF_PTR_W-1:0] issue_buf_head;
     logic [ISSUE_BUF_PTR_W-1:0] issue_buf_tail;
     logic [ISSUE_BUF_PTR_W:0]   issue_buf_count;
-    logic                       issue_buf_reserved;
+    logic issue_buf_reserved;
     wire                     issue_buf_empty = (issue_buf_count == '0);
     wire [ISSUE_BUF_PTR_W+1:0] issue_buf_used = issue_buf_count + issue_buf_reserved;
     wire                     issue_buf_full  = (issue_buf_used >= ISSUE_BUF_DEPTH);
@@ -178,15 +166,15 @@ module memory_subsystem #(
     assign trace_ready = is_tlb_fill ? tlb_ready : (is_load ? lsq_lq_ready : (is_store ? lsq_sq_ready : (is_resolve  ? 1'b1 : 1'b0)));
 
     // L1 <-> L2 signals.
-    logic                       l1_l2_wb_valid;
-    logic [PA_WIDTH-1:0]        l1_l2_wb_paddr;
-    logic [BLOCK_SIZE*8-1:0]    l1_l2_wb_data;
-    logic                       l2_l1_wb_ack;
-    logic                       l1_l2_req_valid;
-    logic [PA_WIDTH-1:0]        l1_l2_req_paddr;
-    logic                       l2_l1_data_valid;
-    logic [PA_WIDTH-1:0]        l2_l1_data_paddr;
-    logic [BLOCK_SIZE*8-1:0]    l2_l1_data;
+    logic l1_l2_wb_valid;
+    logic [PA_WIDTH-1:0] l1_l2_wb_paddr;
+    logic [BLOCK_SIZE*8-1:0] l1_l2_wb_data;
+    logic l2_l1_wb_ack;
+    logic l1_l2_req_valid;
+    logic [PA_WIDTH-1:0] l1_l2_req_paddr;
+    logic l2_l1_data_valid;
+    logic [PA_WIDTH-1:0] l2_l1_data_paddr;
+    logic [BLOCK_SIZE*8-1:0] l2_l1_data;
 
     lsq #(
         .LQ_ENTRIES     (LSQ_ENTRIES / 2),  // 8 loads
@@ -275,14 +263,14 @@ module memory_subsystem #(
     );
 
         // MEMORY INTERFACE
-    logic                        l2_mem_req_valid;
-    logic                        l2_mem_req_is_write;
-    logic [PA_WIDTH-1:0]         l2_mem_req_addr;
-    logic [BLOCK_SIZE*8-1:0]     l2_mem_req_wdata;
-    logic                        l2_mem_req_ready;
-    logic                        l2_mem_resp_valid;
-    logic [PA_WIDTH-1:0]         l2_mem_resp_paddr;
-    logic [BLOCK_SIZE*8-1:0]     l2_mem_resp_rdata;
+    logic l2_mem_req_valid;
+    logic l2_mem_req_is_write;
+    logic [PA_WIDTH-1:0] l2_mem_req_addr;
+    logic [BLOCK_SIZE*8-1:0] l2_mem_req_wdata;
+    logic l2_mem_req_ready;
+    logic l2_mem_resp_valid;
+    logic [PA_WIDTH-1:0] l2_mem_resp_paddr;
+    logic [BLOCK_SIZE*8-1:0] l2_mem_resp_rdata;
 
     assign mem_req_valid    = l2_mem_req_valid;
     assign mem_req_is_write = l2_mem_req_is_write;

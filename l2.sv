@@ -127,7 +127,7 @@ module l2_cache #(
     logic [LINE_W-1:0]     ram_rd_data [L2_WAYS];
     logic [LINE_W-1:0]     set_contents [L2_WAYS][L2_SETS];
 
-    logic                  ram_wr_en   [L2_WAYS];
+    logic ram_wr_en [L2_WAYS];
     logic [INDEX_BITS-1:0] ram_wr_addr [L2_WAYS];
     logic [LINE_W-1:0]     ram_wr_data [L2_WAYS];
 
@@ -171,18 +171,18 @@ module l2_cache #(
     localparam [1:0] MS_WAIT_MEM   = 2'b10;
     localparam [1:0] MS_RESOLVED   = 2'b11;
 
-    logic [1:0]          mshr_state      [NUM_MSHRS];
-    logic [PA_WIDTH-1:0] mshr_paddr      [NUM_MSHRS];
-    logic [LINE_W-1:0]   mshr_block      [NUM_MSHRS];
-    logic                mshr_mem_issued [NUM_MSHRS];
+    logic [1:0] mshr_state [NUM_MSHRS];
+    logic [PA_WIDTH-1:0] mshr_paddr [NUM_MSHRS];
+    logic [LINE_W-1:0] mshr_block [NUM_MSHRS];
+    logic mshr_mem_issued [NUM_MSHRS];
 
     // =========================================================================
     // Pipeline registers
     // =========================================================================
-    logic                req_pending_valid;
+    logic req_pending_valid;
     logic [PA_WIDTH-1:0] req_pending_paddr;
 
-    logic                install_pending_valid;
+    logic install_pending_valid;
     logic [PA_WIDTH-1:0] install_pending_paddr;
     logic [LINE_W-1:0]   install_pending_block;
 
@@ -191,14 +191,14 @@ module l2_cache #(
     localparam logic [1:0] DATA_RD_WB_EVICT   = 2'b10;
     localparam logic [1:0] DATA_RD_FILL_EVICT = 2'b11;
 
-    logic                  data_rd_pending;
-    logic [1:0]            data_rd_kind;
+    logic data_rd_pending;
+    logic [1:0] data_rd_kind;
     logic [INDEX_BITS-1:0] data_rd_index;
-    logic [WAY_BITS-1:0]   data_rd_way;
-    logic [PA_WIDTH-1:0]   data_rd_paddr;
-    logic [PA_WIDTH-1:0]   data_rd_wb_paddr;
-    logic [TAG_SIZE-1:0]   data_rd_new_tag;
-    logic [LINE_W-1:0]     data_rd_new_line;
+    logic [WAY_BITS-1:0] data_rd_way;
+    logic [PA_WIDTH-1:0] data_rd_paddr;
+    logic [PA_WIDTH-1:0] data_rd_wb_paddr;
+    logic [TAG_SIZE-1:0] data_rd_new_tag;
+    logic [LINE_W-1:0] data_rd_new_line;
 
     // =========================================================================
     // Writeback FIFO
@@ -206,10 +206,10 @@ module l2_cache #(
     localparam int WB_DEPTH = NUM_MSHRS;
     localparam int WB_PTR_W = (WB_DEPTH > 1) ? $clog2(WB_DEPTH) : 1;
 
-    logic [PA_WIDTH-1:0]  wb_paddr_q [WB_DEPTH];
-    logic [LINE_W-1:0]    wb_data_q  [WB_DEPTH];
-    logic [WB_PTR_W-1:0]  wb_head, wb_tail;
-    logic [WB_PTR_W:0]    wb_count;
+    logic [PA_WIDTH-1:0] wb_paddr_q [WB_DEPTH];
+    logic [LINE_W-1:0] wb_data_q [WB_DEPTH];
+    logic [WB_PTR_W-1:0] wb_head, wb_tail;
+    logic [WB_PTR_W:0] wb_count;
 
     logic wb_empty, wb_full;
     assign wb_empty = (wb_count == '0);
@@ -219,12 +219,12 @@ module l2_cache #(
     // Address decode
     // =========================================================================
     logic [INDEX_BITS-1:0] req_index;
-    logic [TAG_SIZE-1:0]   req_tag;
+    logic [TAG_SIZE-1:0] req_tag;
     assign req_index = req_pending_paddr[OFFSET_BITS +: INDEX_BITS];
     assign req_tag   = req_pending_paddr[PA_WIDTH-1 -: TAG_SIZE];
 
     logic [INDEX_BITS-1:0] wb_index_in;
-    logic [TAG_SIZE-1:0]   wb_tag_in;
+    logic [TAG_SIZE-1:0] wb_tag_in;
     assign wb_index_in = l1_wb_paddr[OFFSET_BITS +: INDEX_BITS];
     assign wb_tag_in   = l1_wb_paddr[PA_WIDTH-1 -: TAG_SIZE];
 
@@ -232,11 +232,11 @@ module l2_cache #(
     // Shared combinational victim finder
     // =========================================================================
     logic [WAY_BITS-1:0] victim_way;
-    logic                victim_dirty;
+    logic victim_dirty;
 
     always_comb begin : victim_finder
         logic [INDEX_BITS-1:0] vidx;
-        logic                  found_inv;
+        logic found_inv;
 
         if (!data_rd_pending && install_pending_valid)
             vidx = install_pending_paddr[OFFSET_BITS +: INDEX_BITS];
@@ -298,7 +298,7 @@ module l2_cache #(
         end else if (l1_wb_valid) begin
             // Tag lookup to decide hit vs miss (LUTRAM — cheap)
             begin
-                logic                wb_hit_c;
+                logic wb_hit_c;
                 logic [WAY_BITS-1:0] wb_hit_way_c;
                 wb_hit_c     = 1'b0;
                 wb_hit_way_c = '0;
@@ -464,7 +464,7 @@ module l2_cache #(
                 control_taken   = 1'b1;
             end else begin
                 if (!control_taken && l1_wb_valid) begin
-                    logic                wb_hit;
+                    logic wb_hit;
                     logic [WAY_BITS-1:0] wb_hit_way;
 
                     wb_hit     = 1'b0;
@@ -522,7 +522,7 @@ module l2_cache #(
 
                 if (!control_taken && install_pending_valid) begin
                     logic [INDEX_BITS-1:0] inst_index;
-                    logic [TAG_SIZE-1:0]   inst_tag;
+                    logic [TAG_SIZE-1:0] inst_tag;
 
                     inst_index = install_pending_paddr[OFFSET_BITS +: INDEX_BITS];
                     inst_tag   = install_pending_paddr[PA_WIDTH-1 -: TAG_SIZE];
@@ -553,9 +553,9 @@ module l2_cache #(
                 end
 
                 if (!control_taken && req_pending_valid) begin
-                    logic                req_hit;
+                    logic req_hit;
                     logic [WAY_BITS-1:0] req_hit_way;
-                    logic                mshr_dup, mshr_full_l2;
+                    logic mshr_dup, mshr_full_l2;
                     logic [$clog2(NUM_MSHRS)-1:0] mshr_free_idx;
 
                     req_hit     = 1'b0;
