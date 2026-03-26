@@ -35,24 +35,20 @@ module l2_cache #(
     localparam int LINE_W      = BLOCK_SIZE * 8;
     localparam int WAY_BITS    = $clog2(L2_WAYS);
 
-    // =========================================================================
-    // RRIP — 2 bits per way per set
-    // 0 = near re-reference (recently used)
-    // 3 = distant re-reference (evict candidate)
-    // New lines inserted at 2 (SRRIP), hits set to 0
-    // =========================================================================
+    /*
+     RRIP — 2 bits per way per set
+     0 = near re-reference (recently used)
+     3 = distant re-reference (evict candidate)
+     New lines inserted at 2 (SRRIP), hits set to 0
+    */
     logic [1:0] rripmat [L2_SETS][L2_WAYS];
 
-    // =========================================================================
     // Tag / valid / dirty
-    // =========================================================================
     logic [TAG_SIZE-1:0] tags       [L2_SETS][L2_WAYS];
     logic [L2_WAYS-1:0]  set_valids [L2_SETS];
     logic [L2_WAYS-1:0]  set_dirty  [L2_SETS];
 
-    // =========================================================================
     // Cache data RAMs
-    // =========================================================================
     logic [INDEX_BITS-1:0] ram_rd_addr;
     logic [LINE_W-1:0]     ram_rd_data [L2_WAYS];
     logic [LINE_W-1:0]     set_contents [L2_WAYS][L2_SETS];
@@ -92,9 +88,7 @@ module l2_cache #(
         end
     endgenerate
 
-    // =========================================================================
     // MSHR
-    // =========================================================================
     localparam [1:0] MS_IDLE       = 2'b00;
     localparam [1:0] MS_UNRESOLVED = 2'b01;
     localparam [1:0] MS_WAIT_MEM   = 2'b10;
@@ -105,9 +99,7 @@ module l2_cache #(
     logic [LINE_W-1:0] mshr_block [NUM_MSHRS];
     logic mshr_mem_issued [NUM_MSHRS];
 
-    // =========================================================================
     // Pipeline registers
-    // =========================================================================
     logic req_pending_valid;
     logic [PA_WIDTH-1:0] req_pending_paddr;
 
@@ -129,9 +121,7 @@ module l2_cache #(
     logic [TAG_SIZE-1:0] data_rd_new_tag;
     logic [LINE_W-1:0] data_rd_new_line;
 
-    // =========================================================================
     // Writeback FIFO
-    // =========================================================================
     localparam int WB_DEPTH = NUM_MSHRS;
     localparam int WB_PTR_W = (WB_DEPTH > 1) ? $clog2(WB_DEPTH) : 1;
 
@@ -144,9 +134,7 @@ module l2_cache #(
     assign wb_empty = (wb_count == '0);
     assign wb_full  = (wb_count == WB_DEPTH);
 
-    // =========================================================================
     // Address decode
-    // =========================================================================
     logic [INDEX_BITS-1:0] req_index;
     logic [TAG_SIZE-1:0] req_tag;
     assign req_index = req_pending_paddr[OFFSET_BITS +: INDEX_BITS];
@@ -157,11 +145,11 @@ module l2_cache #(
     assign wb_index_in = l1_wb_paddr[OFFSET_BITS +: INDEX_BITS];
     assign wb_tag_in   = l1_wb_paddr[PA_WIDTH-1 -: TAG_SIZE];
 
-    // =========================================================================
-    // RRIP victim finder — combinational, with aging
-    // Searches for a way with rrip==3 in the target set, ages if not found.
-    // At most 3 aging passes needed (worst case all ways at 0).
-    // =========================================================================
+    /*
+     RRIP victim finder — combinational, with aging
+     Searches for a way with rrip==3 in the target set, ages if not found.
+     At most 3 aging passes needed (worst case all ways at 0).
+    */
     logic [WAY_BITS-1:0] victim_way;
     logic victim_dirty;
     logic [1:0] rrip_out [L2_SETS][L2_WAYS]; // aged rrip values to write back on fill
@@ -251,9 +239,8 @@ module l2_cache #(
         victim_dirty = set_dirty[vidx][victim_way] && set_valids[vidx][victim_way];
     end
 
-    // =========================================================================
+
     // RAM read address mux
-    // =========================================================================
     always_comb begin : ram_read_addr_mux
         if (!data_rd_pending && l1_wb_valid)
             ram_rd_addr = wb_index_in;
@@ -263,9 +250,7 @@ module l2_cache #(
             ram_rd_addr = req_index;
     end
 
-    // =========================================================================
     // RAM write port mux
-    // =========================================================================
     always_comb begin : ram_write_ports
         for (int w = 0; w < L2_WAYS; w++) begin
             ram_wr_en[w]   = 1'b0;
@@ -308,9 +293,7 @@ module l2_cache #(
         end
     end
 
-    // =========================================================================
     // Memory request output
-    // =========================================================================
     always_comb begin
         mem_req_valid    = 1'b0;
         mem_req_is_write = 1'b0;
@@ -331,9 +314,7 @@ module l2_cache #(
         end
     end
 
-    // =========================================================================
     // Sequential logic
-    // =========================================================================
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             l1_wb_ack             <= 1'b0;

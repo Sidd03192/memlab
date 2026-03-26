@@ -1,34 +1,6 @@
 `timescale 1ns/1ps
 
-// =============================================================================
 // L2 Cache — optimized for Cyclone V (DE10-Nano)
-//
-// Optimizations vs original:
-//
-//  1. PLRU (3-bit binary tree) replaces lru_matrix[L2_SETS][4][4].
-//     48 flops total instead of 256, plus three eliminated nested-loop
-//     victim searches.
-//
-//  2. M10K-friendly RAM structure.
-//     Four completely isolated always_ff blocks (one per way) each containing
-//     ONLY the RAM array access — no other logic.  Write-enable, write-address,
-//     write-data, and read-address are all plain logic signals computed purely
-//     combinationally from registered pipeline state.  Quartus infers each as
-//     a simple-dual-port M10K without hesitation.
-//
-//     Critical rule satisfied: ram_wr_en/addr/data and ram_rd_addr are driven
-//     from a single always_comb block only — no always_ff driver — so there
-//     is no multi-driver conflict and the signals look like clean RAM controls.
-//
-//  3. Shared combinational victim finder.
-//     One always_comb block computes victim_way / victim_dirty for all three
-//     paths (wb-miss, mshr-install, req-miss) instead of three copies.
-//
-//  4. WB FIFO push inlined into the data_rd_pending case directly (no separate
-//     wb_push/wb_pop variables that created blocking/non-blocking mix issues).
-//
-// Pipeline behaviour and all interfaces are identical to the original.
-// =============================================================================
 module l2_cache #(
     parameter PA_WIDTH    = 30,
     parameter DATA_WIDTH  = 64,
@@ -70,22 +42,20 @@ module l2_cache #(
     input  logic [BLOCK_SIZE*8-1:0] mem_resp_rdata
 );
 
-    // =========================================================================
     // Geometry
-    // =========================================================================
     localparam int INDEX_BITS  = $clog2(L2_SETS);      // 4
     localparam int OFFSET_BITS = $clog2(BLOCK_SIZE);   // 6
     localparam int TAG_SIZE    = L2_TAG_SIZE;          // 20
     localparam int LINE_W      = BLOCK_SIZE * 8;       // 512
     localparam int WAY_BITS    = $clog2(L2_WAYS);      // 2
 
-    // =========================================================================
-    // PLRU — 3 bits per set (binary tree, 4-way)
-    //
-    //   bit 0: top split    0=left(ways 0,1)  1=right(ways 2,3)
-    //   bit 1: left split   0=evict way 0     1=evict way 1
-    //   bit 2: right split  0=evict way 2     1=evict way 3
-    // =========================================================================
+    /*
+        PLRU — 3 bits per set (binary tree, 4-way)
+    
+        bit 0: top split    0=left(ways 0,1)  1=right(ways 2,3)
+        bit 1: left split   0=evict way 0     1=evict way 1
+        bit 2: right split  0=evict way 2     1=evict way 3
+    */
     logic [2:0] plru [L2_SETS];
 
     function automatic logic [WAY_BITS-1:0] plru_victim(input logic [2:0] p);
@@ -103,26 +73,25 @@ module l2_cache #(
         return np;
     endfunction
 
-    // =========================================================================
+
     // Tag / valid / dirty  (LUTRAM — 1280 bits total, too small for M10K)
-    // =========================================================================
     logic [TAG_SIZE-1:0] tags       [L2_SETS][L2_WAYS];
     logic [L2_WAYS-1:0]  set_valids [L2_SETS];
     logic [L2_WAYS-1:0]  set_dirty  [L2_SETS];
 
-    // =========================================================================
-    // Cache data RAMs — M10K inference
-    //
-    // Key constraints met:
-    //   1. Each way_ram_N lives in its OWN always_ff with NOTHING else inside.
-    //   2. ram_wr_en/addr/data are driven ONLY from always_comb (ram_write_ports).
-    //      They are never assigned in always_ff.
-    //   3. ram_rd_addr is driven ONLY from always_comb (ram_read_addr_mux).
-    //   4. No resets on the RAM arrays themselves.
-    //
-    // Read is registered (synchronous M10K): ram_rd_data[w] is valid the
-    // cycle AFTER ram_rd_addr is presented, matching the data_rd_pending stage.
-    // =========================================================================
+    /*
+     Cache data RAMs — M10K inference
+    
+     Key constraints met:
+       1. Each way_ram_N lives in its OWN always_ff with NOTHING else inside.
+       2. ram_wr_en/addr/data are driven ONLY from always_comb (ram_write_ports).
+          They are never assigned in always_ff.
+       3. ram_rd_addr is driven ONLY from always_comb (ram_read_addr_mux).
+       4. No resets on the RAM arrays themselves.
+    
+     Read is registered (synchronous M10K): ram_rd_data[w] is valid the
+     cycle AFTER ram_rd_addr is presented, matching the data_rd_pending stage.
+    */
     logic [INDEX_BITS-1:0] ram_rd_addr;
     logic [LINE_W-1:0]     ram_rd_data [L2_WAYS];
     logic [LINE_W-1:0]     set_contents [L2_WAYS][L2_SETS];
@@ -163,9 +132,7 @@ module l2_cache #(
         end
     endgenerate
 
-    // =========================================================================
     // MSHR
-    // =========================================================================
     localparam [1:0] MS_IDLE       = 2'b00;
     localparam [1:0] MS_UNRESOLVED = 2'b01;
     localparam [1:0] MS_WAIT_MEM   = 2'b10;
@@ -176,9 +143,7 @@ module l2_cache #(
     logic [LINE_W-1:0] mshr_block [NUM_MSHRS];
     logic mshr_mem_issued [NUM_MSHRS];
 
-    // =========================================================================
     // Pipeline registers
-    // =========================================================================
     logic req_pending_valid;
     logic [PA_WIDTH-1:0] req_pending_paddr;
 
@@ -200,9 +165,7 @@ module l2_cache #(
     logic [TAG_SIZE-1:0] data_rd_new_tag;
     logic [LINE_W-1:0] data_rd_new_line;
 
-    // =========================================================================
     // Writeback FIFO
-    // =========================================================================
     localparam int WB_DEPTH = NUM_MSHRS;
     localparam int WB_PTR_W = (WB_DEPTH > 1) ? $clog2(WB_DEPTH) : 1;
 
@@ -215,9 +178,7 @@ module l2_cache #(
     assign wb_empty = (wb_count == '0);
     assign wb_full  = (wb_count == WB_DEPTH);
 
-    // =========================================================================
     // Address decode
-    // =========================================================================
     logic [INDEX_BITS-1:0] req_index;
     logic [TAG_SIZE-1:0] req_tag;
     assign req_index = req_pending_paddr[OFFSET_BITS +: INDEX_BITS];
@@ -228,9 +189,7 @@ module l2_cache #(
     assign wb_index_in = l1_wb_paddr[OFFSET_BITS +: INDEX_BITS];
     assign wb_tag_in   = l1_wb_paddr[PA_WIDTH-1 -: TAG_SIZE];
 
-    // =========================================================================
     // Shared combinational victim finder
-    // =========================================================================
     logic [WAY_BITS-1:0] victim_way;
     logic victim_dirty;
 
@@ -257,9 +216,7 @@ module l2_cache #(
         victim_dirty = set_dirty[vidx][victim_way] && set_valids[vidx][victim_way];
     end
 
-    // =========================================================================
     // RAM read address mux — purely combinational
-    // =========================================================================
     always_comb begin : ram_read_addr_mux
         if (!data_rd_pending && l1_wb_valid)
             ram_rd_addr = wb_index_in;
@@ -269,16 +226,16 @@ module l2_cache #(
             ram_rd_addr = req_index;
     end
 
-    // =========================================================================
-    // RAM write port mux — purely combinational from registered state.
-    //
-    // At most one write can be active per cycle (the pipeline serialises them):
-    //   - data_rd_pending eviction paths  (WB_EVICT / FILL_EVICT)
-    //   - wb hit / clean-victim miss
-    //   - mshr-install clean-victim
-    //
-    // The wb_hit comparison is a 4-entry tag scan on LUTRAM — negligible cost.
-    // =========================================================================
+    /*
+     RAM write port mux — purely combinational from registered state.
+    
+     At most one write can be active per cycle (the pipeline serialises them):
+       - data_rd_pending eviction paths  (WB_EVICT / FILL_EVICT)
+       - wb hit / clean-victim miss
+       - mshr-install clean-victim
+    
+     The wb_hit comparison is a 4-entry tag scan on LUTRAM — negligible cost.
+    */
     always_comb begin : ram_write_ports
         for (int w = 0; w < L2_WAYS; w++) begin
             ram_wr_en[w]   = 1'b0;
@@ -331,9 +288,7 @@ module l2_cache #(
         end
     end
 
-    // =========================================================================
     // Memory request output — combinational
-    // =========================================================================
     always_comb begin
         mem_req_valid    = 1'b0;
         mem_req_is_write = 1'b0;
@@ -354,9 +309,7 @@ module l2_cache #(
         end
     end
 
-    // =========================================================================
     // Sequential logic
-    // =========================================================================
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             l1_wb_ack             <= 1'b0;
