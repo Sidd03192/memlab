@@ -390,10 +390,14 @@ module l2_cache #(
 
         end else begin
             logic control_taken;
+            logic do_wb_push; 
+            logic do_wb_pop;  
 
             l1_wb_ack     <= 1'b0;
             l1_data_valid <= 1'b0;
             control_taken = 1'b0;
+            do_wb_push    = 1'b0;
+            do_wb_pop     = 1'b0;
 
             // ------------------------------------------------------------------
             // Memory response → MSHR
@@ -432,7 +436,8 @@ module l2_cache #(
                         wb_paddr_q[wb_tail]                  <= data_rd_wb_paddr;
                         wb_data_q[wb_tail]                   <= ram_rd_data[data_rd_way];
                         wb_tail                              <= wb_tail + 1'b1;
-                        wb_count                             <= wb_count + 1'b1;
+                        // wb_count                             <= wb_count + 1'b1;
+                        do_wb_push                           = 1'b1;
                         tags[data_rd_index][data_rd_way]     <= data_rd_new_tag;
                         set_valids[data_rd_index][data_rd_way] <= 1'b1;
                         set_dirty[data_rd_index][data_rd_way]  <= 1'b1;
@@ -444,7 +449,8 @@ module l2_cache #(
                         wb_paddr_q[wb_tail]                  <= data_rd_wb_paddr;
                         wb_data_q[wb_tail]                   <= ram_rd_data[data_rd_way];
                         wb_tail                              <= wb_tail + 1'b1;
-                        wb_count                             <= wb_count + 1'b1;
+                        // wb_count                             <= wb_count + 1'b1;
+                        do_wb_push                           = 1'b1;
                         tags[data_rd_index][data_rd_way]     <= data_rd_new_tag;
                         set_valids[data_rd_index][data_rd_way] <= 1'b1;
                         set_dirty[data_rd_index][data_rd_way]  <= 1'b0;
@@ -612,7 +618,8 @@ module l2_cache #(
             if (mem_req_valid && mem_req_ready) begin
                 if (mem_req_is_write) begin
                     wb_head  <= wb_head + 1'b1;
-                    wb_count <= wb_count - 1'b1;
+                    // wb_count <= wb_count - 1'b1;
+                    do_wb_pop = 1'b1;
                 end else begin
                     logic mshr_issued_one;
                     mshr_issued_one = 1'b0;
@@ -626,7 +633,8 @@ module l2_cache #(
                     end
                 end
             end
-
+            if (do_wb_push && !do_wb_pop)      wb_count <= wb_count + 1'b1;
+            else if (!do_wb_push && do_wb_pop) wb_count <= wb_count - 1'b1;
         end
     end
 

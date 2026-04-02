@@ -68,17 +68,18 @@ module l2_sdram_master (
     logic [28:0] r_addr;
     logic [2:0]  burst_cnt;
     logic [63:0] r_val_burst [0:7];
+    logic [511:0] r_wdata;
 
     // Slice write data into 8 x 64-bit bursts
     logic [63:0] w_val_burst [0:7];
-    assign w_val_burst[0] = req_wdata[63:0];
-    assign w_val_burst[1] = req_wdata[127:64];
-    assign w_val_burst[2] = req_wdata[191:128];
-    assign w_val_burst[3] = req_wdata[255:192];
-    assign w_val_burst[4] = req_wdata[319:256];
-    assign w_val_burst[5] = req_wdata[383:320];
-    assign w_val_burst[6] = req_wdata[447:384];
-    assign w_val_burst[7] = req_wdata[511:448];
+    assign w_val_burst[0] = r_wdata[63:0];   
+    assign w_val_burst[1] = r_wdata[127:64]; 
+    assign w_val_burst[2] = r_wdata[191:128];
+    assign w_val_burst[3] = r_wdata[255:192];
+    assign w_val_burst[4] = r_wdata[319:256];
+    assign w_val_burst[5] = r_wdata[383:320];
+    assign w_val_burst[6] = r_wdata[447:384];
+    assign w_val_burst[7] = r_wdata[511:448];
 
     // -------------------------------------------------------------------------
     // Constants
@@ -120,6 +121,7 @@ module l2_sdram_master (
                     if (req_valid) begin
                         r_addr <= {2'b0, req_addr[29:6], 3'b0};
                         paddr_out <= req_addr;
+                        r_wdata <= req_wdata;
                         if (req_wr) begin
                             state <= S_WRITE_CMD;
                         end else begin

@@ -245,15 +245,20 @@ end
                                 wb_push_data  = victim_data;
                             end
 
-                            install_block = mshr_block[i];
-                            // replace the parts we need
-                            for (int w = 0; w < WORDS_PER_BLOCK; w++) begin
-                                if (mshr_store_mask[i][w]) begin
-                                    install_block[w * DATA_WIDTH +: DATA_WIDTH] = mshr_store_data[i][w * DATA_WIDTH +: DATA_WIDTH];
+                            begin
+                                logic [BLOCK_SIZE*8-1:0] temp_install;
+                                temp_install = mshr_block[i];
+                                
+                                for (int w = 0; w < WORDS_PER_BLOCK; w++) begin
+                                    if (mshr_store_mask[i][w]) begin
+                                        temp_install[w * DATA_WIDTH +: DATA_WIDTH] = mshr_store_data[i][w * DATA_WIDTH +: DATA_WIDTH];
+                                    end
                                 end
+
+                                set_contents[mshr_index[i]][evict_way_l] <= temp_install;
                             end
 
-                            set_contents[mshr_index[i]][evict_way_l] <= install_block;
+                            // set_contents[mshr_index[i]][evict_way_l] <= install_block;
                             tags[mshr_index[i]][evict_way_l]         <= mshr_paddr[i][PA_WIDTH-1 -: TAG_SIZE];
                             set_valids[mshr_index[i]][evict_way_l]   <= 1'b1;
                             set_dirty[mshr_index[i]][evict_way_l]    <= (mshr_store_mask[i] != '0);
@@ -309,8 +314,8 @@ end
                             mshr_paddr[mshr_free_idx]    <= incoming_line_paddr;
                             mshr_index[mshr_free_idx]    <= curr_index;
                             mshr_state[mshr_free_idx]    <= MS_UNRESOLVED;
-                            mshr_store_mask[mshr_free_idx] <= '0;
-                            mshr_store_data[mshr_free_idx] <= '0;
+                            // mshr_store_mask[mshr_free_idx] <= '0;
+                            // mshr_store_data[mshr_free_idx] <= '0;
                             if (curr_is_write) begin
                                 mshr_store_data[mshr_free_idx][curr_word_offset * DATA_WIDTH +: DATA_WIDTH] <= curr_wdata;
                                 mshr_store_mask[mshr_free_idx][curr_word_offset] <= 1'b1;
