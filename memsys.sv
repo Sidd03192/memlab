@@ -24,34 +24,49 @@ module memory_subsystem #(
 
     // Component sizes
     parameter LSQ_ENTRIES   = 16,
+    parameter LQ_ENTRIES    = LSQ_ENTRIES / 2,
+    parameter SQ_ENTRIES    = LSQ_ENTRIES / 2,
     parameter TLB_ENTRIES   = 16,
     parameter L1_CAPACITY   = 512,      
     parameter L1_WAYS       = 2,
     parameter L1_MSHRS      = 2,
     parameter L2_CAPACITY   = 4096,     
     parameter L2_WAYS       = 4,
-    parameter L2_MSHRS      = 4
+    parameter L2_MSHRS      = 4,
+    parameter USE_AVALON_MEM = 1'b0
 )(
     input  logic                        clk,
     input  logic                        rst_n,
 
     
     // TRACE INPUT 
-    
     input  logic [TRACE_WIDTH-1:0]      trace_data,
+    input  logic [1:0]                  trace_addr,
+    input  logic [31:0]                 trace_data_chunk,
     input  logic                        trace_valid,
+    input  logic                        trace_write,
     output logic                        trace_ready,
 
-    
-    // MEMORY INTERFACE
+    // SIMPLE MEMORY INTERFACE
     output logic                        mem_req_valid,
     output logic                        mem_req_is_write,
     output logic [PA_WIDTH-1:0]         mem_req_addr,
-    output logic [BLOCK_SIZE*8-1:0]     mem_req_wdata,  // Full cache line
+    output logic [BLOCK_SIZE*8-1:0]     mem_req_wdata,
     input  logic                        mem_req_ready,
     input  logic                        mem_resp_valid,
     input  logic [PA_WIDTH-1:0]         mem_resp_paddr,
-    input  logic [BLOCK_SIZE*8-1:0]     mem_resp_rdata
+    input  logic [BLOCK_SIZE*8-1:0]     mem_resp_rdata,
+
+    // TO SDRAM PORTS
+    output logic [31:0] avm_address,
+    output logic [10:0] avm_burstcount,
+    output logic        avm_read,
+    output logic        avm_write,
+    output logic [63:0] avm_writedata,
+    output logic  [7:0] avm_byteenable,
+    input  logic [63:0] avm_readdata,
+    input  logic        avm_readdatavalid,
+    input  logic        avm_waitrequest
 );
     
     // Trace format (121 bits):
@@ -62,7 +77,23 @@ module memory_subsystem #(
     //   [51:48]   - trace_id (4-bit operation ID)
     //   [47:0]    -  (48-bit virtual address)
     //   [85:56]   - trace_tlb_paddr (for TLB_FILL only, 30-bit physical addr)
+
+    logic [TRACE_WIDTH-1:0] trace_line;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            trace_line <= '0;
+        end else if (trace_write) begin       // ← only write when pulsed
+            case (trace_addr)
+                2'd0: trace_line[31:0]   <= trace_data_chunk;
+                2'd1: trace_line[63:32]  <= trace_data_chunk;
+                2'd2: trace_line[95:64]  <= trace_data_chunk;
+                2'd3: trace_line[120:96] <= trace_data_chunk[24:0];
+            endcase
+        end
+    end
     
+    wire [TRACE_WIDTH-1:0] active_trace = USE_AVALON_MEM ? trace_line : trace_data;
 
     // Operation types
     localparam [2:0] OP_MEM_LOAD    = 3'd0;
@@ -71,13 +102,13 @@ module memory_subsystem #(
     localparam [2:0] OP_TLB_FILL    = 3'd4;
 
     // input wires for LSQ From trace. 
-    wire [2:0]              trace_op          = trace_data[54:52];
-    wire [3:0]              trace_id          = trace_data[51:48];
-    wire [VA_WIDTH-1:0]     trace_vaddr      = trace_data[47:0];
-    wire                    trace_vaddr_valid = trace_data[55];
-    wire [DATA_WIDTH-1:0]   trace_value       = trace_data[119:56];
-    wire                    trace_value_valid = trace_data[120];
-    wire [PA_WIDTH-1:0]     trace_tlb_paddr   = trace_data[85:56];
+    wire [2:0]              trace_op          = active_trace[54:52];
+    wire [3:0]              trace_id          = active_trace[51:48];
+    wire [VA_WIDTH-1:0]     trace_vaddr      = active_trace[47:0];
+    wire                    trace_vaddr_valid = active_trace[55];
+    wire [DATA_WIDTH-1:0]   trace_value       = active_trace[119:56];
+    wire                    trace_value_valid = active_trace[120];
+    wire [PA_WIDTH-1:0]     trace_tlb_paddr   = active_trace[85:56];
 
     wire is_load    = (trace_op == OP_MEM_LOAD);
     wire is_store   = (trace_op == OP_MEM_STORE);
@@ -129,11 +160,7 @@ module memory_subsystem #(
     // Gate L1 start_index so it doesn't fire during a TLB fill collision
     wire l1_start_from_lsq = launch_issue_now;
 
-    assign trace_ready = is_tlb_fill ? tlb_ready
-                       : is_load     ? lsq_lq_ready
-                       : is_store    ? lsq_sq_ready
-                       : is_resolve  ? 1'b1
-                       :               1'b0;
+    assign trace_ready = is_tlb_fill ? tlb_ready : (is_load ? lsq_lq_ready : (is_store ? lsq_sq_ready : (is_resolve  ? 1'b1 : 1'b0)));
 
     // L1 <-> L2 signals.
     logic                       l1_l2_wb_valid;
@@ -147,8 +174,8 @@ module memory_subsystem #(
     logic [BLOCK_SIZE*8-1:0]    l2_l1_data;
 
     lsq #(
-        .LQ_ENTRIES     (LSQ_ENTRIES / 2),  // 8 loads
-        .SQ_ENTRIES     (LSQ_ENTRIES / 2),  // 8 stores
+        .LQ_ENTRIES     (LQ_ENTRIES),
+        .SQ_ENTRIES     (SQ_ENTRIES),
         .VA_WIDTH       (VA_WIDTH),
         .DATA_WIDTH     (DATA_WIDTH)
     ) u_lsq (
@@ -225,6 +252,21 @@ module memory_subsystem #(
         .l2_data        (l2_l1_data)
     );
 
+        // MEMORY INTERFACE
+    logic                        l2_mem_req_valid;
+    logic                        l2_mem_req_is_write;
+    logic [PA_WIDTH-1:0]         l2_mem_req_addr;
+    logic [BLOCK_SIZE*8-1:0]     l2_mem_req_wdata;
+    logic                        l2_mem_req_ready;
+    logic                        l2_mem_resp_valid;
+    logic [PA_WIDTH-1:0]         l2_mem_resp_paddr;
+    logic [BLOCK_SIZE*8-1:0]     l2_mem_resp_rdata;
+
+    assign mem_req_valid    = l2_mem_req_valid;
+    assign mem_req_is_write = l2_mem_req_is_write;
+    assign mem_req_addr     = l2_mem_req_addr;
+    assign mem_req_wdata    = l2_mem_req_wdata;
+
     l2_cache #(
         .L2_CAPACITY    (L2_CAPACITY),
         .L2_WAYS        (L2_WAYS),
@@ -250,17 +292,61 @@ module memory_subsystem #(
         .l1_data        (l2_l1_data),
 
         // To memory
-        .mem_req_valid  (mem_req_valid),
-        .mem_req_is_write(mem_req_is_write),
-        .mem_req_addr   (mem_req_addr),
-        .mem_req_wdata  (mem_req_wdata),
-        .mem_req_ready  (mem_req_ready),
+        .mem_req_valid  (l2_mem_req_valid),
+        .mem_req_is_write(l2_mem_req_is_write),
+        .mem_req_addr   (l2_mem_req_addr),
+        .mem_req_wdata  (l2_mem_req_wdata),
+        .mem_req_ready  (l2_mem_req_ready),
 
         // From memory
-        .mem_resp_valid (mem_resp_valid),
-        .mem_resp_paddr (mem_resp_paddr),
-        .mem_resp_rdata (mem_resp_rdata)
+        .mem_resp_valid (l2_mem_resp_valid),
+        .mem_resp_paddr (l2_mem_resp_paddr),
+        .mem_resp_rdata (l2_mem_resp_rdata)
     );
+
+    generate
+        if (USE_AVALON_MEM) begin : gen_avalon_mem
+            l2_sdram_master avm_sdram (
+                .clk   (clk),
+                .rst_n (rst_n),
+
+                // From L2
+                .req_valid (l2_mem_req_valid),
+                .req_addr  (l2_mem_req_addr),
+                .req_wr    (l2_mem_req_is_write),
+                .req_wdata (l2_mem_req_wdata),
+
+                // To L2
+                .rdata_out (l2_mem_resp_rdata),
+                .paddr_out (l2_mem_resp_paddr),
+                .ready     (l2_mem_req_ready),
+                .valid     (l2_mem_resp_valid),
+
+                // TO SDRAM PORTS
+                .avm_address       (avm_address),
+                .avm_burstcount    (avm_burstcount),
+                .avm_read          (avm_read),
+                .avm_write         (avm_write),
+                .avm_writedata     (avm_writedata),
+                .avm_byteenable    (avm_byteenable),
+                .avm_readdata      (avm_readdata),
+                .avm_readdatavalid (avm_readdatavalid),
+                .avm_waitrequest   (avm_waitrequest)
+            );
+        end else begin : gen_simple_mem
+            assign l2_mem_req_ready  = mem_req_ready;
+            assign l2_mem_resp_valid = mem_resp_valid;
+            assign l2_mem_resp_paddr = mem_resp_paddr;
+            assign l2_mem_resp_rdata = mem_resp_rdata;
+
+            assign avm_address       = '0;
+            assign avm_burstcount    = '0;
+            assign avm_read          = 1'b0;
+            assign avm_write         = 1'b0;
+            assign avm_writedata     = '0;
+            assign avm_byteenable    = '0;
+        end
+    endgenerate
 
 // comb logic to handle issue buffer. 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -284,4 +370,3 @@ module memory_subsystem #(
     end
 
 endmodule
-
