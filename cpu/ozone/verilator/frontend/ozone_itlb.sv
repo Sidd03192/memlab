@@ -19,7 +19,6 @@ module ozone_itlb
 
     output logic lookup_hit_o, // registered
     output logic [PA_BITS-1:0] lookup_paddr_o,
-    // TODO: Maybe output permission bits here, if that's required.mem_pkg
 
     input logic fill_req_i,
     input logic [VPN_BITS-1:0] fill_vpn_i,
@@ -27,9 +26,9 @@ module ozone_itlb
 
     input logic flush_all_i,
 
-    output logic lookup_ack_i,
-    output logic fill_ack_i,
-    output logic flush_ack_i
+    output logic lookup_ack_o,
+    output logic fill_ack_o, // sign
+    output logic flush_ack_o
 );
 
     typedef struct packed {
@@ -49,14 +48,14 @@ module ozone_itlb
 
             clock_hand <= '0;
         end else begin
-            if (fill_ack_i) begin
+            if (fill_ack_o) begin
                 entries[clock_hand].valid <= 1;
                 entries[clock_hand].vpn <= fill_vpn_i;
                 entries[clock_hand].ppn <= fill_ppn_i;
                 clock_hand <= clock_hand + 1;
             end
 
-            if (flush_ack_i) begin
+            if (flush_ack_o) begin
                 for (int j = 0; j < NUM_ENTRIES; j++) begin
                     entries[j].valid <= 0;
                 end
@@ -71,14 +70,14 @@ module ozone_itlb
         valid = 0;
         index = 0;
 
-        flush_ack_i = flush_all_i;
-        lookup_ack_i = !flush_all_i && lookup_req_i;
-        fill_ack_i = !flush_all_i && !lookup_req_i && fill_req_i;
+        flush_ack_o = flush_all_i;
+        lookup_ack_o = !flush_all_i && lookup_req_i;
+        fill_ack_o = !flush_all_i && !lookup_req_i && fill_req_i;
 
         lookup_hit_o = 1'b0;
         lookup_paddr_o = '0;
 
-        if (lookup_ack_i) begin
+        if (lookup_ack_o) begin
             for (int i = 0; i < NUM_ENTRIES; i++) begin
                 if (entries[i].valid && entries[i].vpn == lookup_vaddr_i[VA_BITS-1:VA_BITS-VPN_BITS]) begin
                     index = (LOG2_NUM_ENTRIES)'(i);
