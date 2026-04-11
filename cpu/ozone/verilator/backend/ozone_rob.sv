@@ -36,6 +36,10 @@ module ozone_rob
     output logic [4:0]                  commit_reg_addr,
     output logic [63:0]                 commit_reg_value,
     output logic [ROB_IDX_BITS-1:0]     commit_reg_rob_idx,
+    output logic                        commit_fp_en,       // architectural FPR write commit
+    output logic [4:0]                  commit_fp_addr,
+    output logic [63:0]                 commit_fp_value,
+    output logic [ROB_IDX_BITS-1:0]     commit_fp_rob_idx,
     output logic                        commit_nzcv_en,     
     output logic [3:0]                  commit_nzcv_value,
     output logic [ROB_IDX_BITS-1:0]     commit_nzcv_rob_idx,
@@ -104,11 +108,18 @@ module ozone_rob
         commit_valid        = head_can_commit;
         commit_data         = head_entry;
 
-        commit_reg_en       = head_can_commit && head_entry.alloc_has_dest &&
+        commit_reg_en       = head_can_commit &&
+                              (head_entry.dest_type == DEST_GPR) &&
                               (head_entry.dest_reg != 5'd31);
         commit_reg_addr     = head_entry.dest_reg;
         commit_reg_value    = head_entry.value;
         commit_reg_rob_idx  = head;
+
+        commit_fp_en        = head_can_commit &&
+                              (head_entry.dest_type == DEST_FPR);
+        commit_fp_addr      = head_entry.dest_reg;
+        commit_fp_value     = head_entry.value;
+        commit_fp_rob_idx   = head;
 
         commit_nzcv_en      = head_can_commit && head_entry.update_nzcv;
         commit_nzcv_value   = head_entry.nzcv;

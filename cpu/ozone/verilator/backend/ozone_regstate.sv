@@ -19,15 +19,22 @@ module ozone_regstate
   // dispatch will give registers it wants info for 
   input  logic [4:0]                src1_addr,      
   input  logic [4:0]                src2_addr,
+  input  logic [4:0]                fp_src1_addr,
+  input  logic [4:0]                fp_src2_addr,
   // we give output of those registers. -> combinationally 
   output reg_entry_t                src1_status,
   output reg_entry_t                src2_status,
+  output reg_entry_t                fp_src1_status,
+  output reg_entry_t                fp_src2_status,
   output reg_entry_t                nzcv_status,
 
   // Dispatch updats (we make a entry )
   input  logic                      disp_wr_en,
   input  logic [4:0]                disp_wr_addr,   // dest register
   input  logic [ROB_IDX_WIDTH-1:0]  disp_rob_idx,   // ROB tail
+  input  logic                      disp_fp_wr_en,
+  input  logic [4:0]                disp_fp_wr_addr,
+  input  logic [ROB_IDX_WIDTH-1:0]  disp_fp_rob_idx,
   // same rob entry can also update nczv
   input  logic                      disp_nzcv_wr_en, // if instruction updates nzcv
   input  logic [ROB_IDX_WIDTH-1:0]  disp_nzcv_rob_idx, // this is what updates nzcv now
@@ -37,6 +44,10 @@ module ozone_regstate
   input  logic [4:0]                commit_addr,
   input  logic [63:0]               commit_value,
   input  logic [ROB_IDX_WIDTH-1:0]  commit_rob_idx,
+  input  logic                      commit_fp_en,
+  input  logic [4:0]                commit_fp_addr,
+  input  logic [63:0]               commit_fp_value,
+  input  logic [ROB_IDX_WIDTH-1:0]  commit_fp_rob_idx,
   input  logic                      commit_nzcv_en,
   input  logic [3:0]                commit_nzcv_value,
   input  logic [ROB_IDX_WIDTH-1:0]  commit_nzcv_rob_idx
@@ -44,6 +55,7 @@ module ozone_regstate
 
   // actual regiters 
   reg_entry_t gp_reg [0:30];
+  reg_entry_t fp_reg [0:31];
   reg_entry_t nzcv_reg;
 
 
@@ -52,6 +64,8 @@ module ozone_regstate
     // TODO: need to handle writing to 31 (return address register) 
     src1_status = gp_reg[src1_addr];
     src2_status = gp_reg[src2_addr];
+    fp_src1_status = fp_reg[fp_src1_addr];
+    fp_src2_status = fp_reg[fp_src2_addr];
     nzcv_status = nzcv_reg;
   end
 
@@ -72,6 +86,11 @@ module ozone_regstate
         gp_reg[i].busy    <= 1'b0;
         gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
       end
+      for (int i = 0; i < 32; i++) begin
+        fp_reg[i].value   <= 64'b0;
+        fp_reg[i].busy    <= 1'b0;
+        fp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
+      end
       nzcv_reg.value   <= 64'b0;
       nzcv_reg.busy    <= 1'b0;
       nzcv_reg.rob_idx <= {ROB_IDX_WIDTH{1'b0}};
@@ -82,6 +101,10 @@ module ozone_regstate
         gp_reg[i].busy    <= 1'b0;
         gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
       end
+      for (int i = 0; i < 32; i++) begin
+        fp_reg[i].busy    <= 1'b0;
+        fp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
+      end
       nzcv_reg.busy    <= 1'b0;
       nzcv_reg.rob_idx <= {ROB_IDX_WIDTH{1'b0}};
     end else begin
@@ -91,6 +114,12 @@ module ozone_regstate
         if (gp_reg[commit_addr].rob_idx == commit_rob_idx) begin
           gp_reg[commit_addr].value <= commit_value;
           gp_reg[commit_addr].busy <= 1'b0;
+        end
+      end
+      if (commit_fp_en) begin
+        if (fp_reg[commit_fp_addr].rob_idx == commit_fp_rob_idx) begin
+          fp_reg[commit_fp_addr].value <= commit_fp_value;
+          fp_reg[commit_fp_addr].busy <= 1'b0;
         end
       end
       if (commit_nzcv_en) begin
@@ -104,6 +133,10 @@ module ozone_regstate
       if (disp_wr_en && disp_wr_addr != 5'd31) begin
         gp_reg[disp_wr_addr].busy    <= 1'b1;
         gp_reg[disp_wr_addr].rob_idx <= disp_rob_idx;
+      end
+      if (disp_fp_wr_en) begin
+        fp_reg[disp_fp_wr_addr].busy    <= 1'b1;
+        fp_reg[disp_fp_wr_addr].rob_idx <= disp_fp_rob_idx;
       end
       if (disp_nzcv_wr_en) begin
         nzcv_reg.busy    <= 1'b1;

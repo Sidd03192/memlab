@@ -18,8 +18,7 @@ typedef enum logic [1:0] {
 typedef enum logic [1:0] {
     DEST_NONE = 2'd0,
     DEST_GPR  = 2'd1,
-    DEST_NZCV = 2'd2,
-    DEST_BOTH = 2'd3
+    DEST_FPR  = 2'd2
 } dest_type_e;
 
 // -------------------------------------------------------
