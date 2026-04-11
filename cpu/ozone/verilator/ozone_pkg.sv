@@ -53,6 +53,12 @@ typedef enum logic [3:0] {
     COND_NV = 4'hF    // Always (alternate encoding)
 } cond_code_e;
 
+typedef struct packed {
+    logic [63:0]                 value;      // actual architectural state
+    logic                        busy;       // if somehing will update this
+    logic [ROB_IDX_WIDTH-1:0]    rob_idx;    // rob entry for why its busy (wakeup)
+} reg_entry_t;
+
 
 // Reservation station entry 
 typedef struct packed {
