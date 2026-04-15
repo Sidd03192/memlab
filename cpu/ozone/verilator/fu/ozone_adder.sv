@@ -293,6 +293,7 @@ module ozone_rs_adder
         if (add_value_valid) begin
           for (int i = 0; i < DEPTH; i++) begin
             if (entries[i].valid &&
+                entries[i].op != OP_BCOND &&
                 entries[i].Qj == issue_entry.rob_tag) begin
               entries[i].Vj <= add_result;
               entries[i].Qj <= '0;

@@ -25,6 +25,7 @@ module ozone_rob
     output logic [ROB_IDX_BITS-1:0]     alloc_rob_idx,      // allocated ROB index returned to dispatch
 
     output logic                        rob_full,           // stall dispatch if full
+    output logic [ROB_IDX_BITS-1:0]     rob_head,           // current head for CDB age arbitration
 
     // cdb broadcast. 
     input  cdb_broadcast_t              cdb_in,
@@ -74,6 +75,7 @@ module ozone_rob
 
     // Full/empty detection
     assign rob_full = (count == ROB_DEPTH);
+    assign rob_head = head;
 
    // dispatch reads source ops
     always_comb begin
