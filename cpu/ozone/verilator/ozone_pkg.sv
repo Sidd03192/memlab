@@ -33,6 +33,8 @@ typedef enum logic [OPCODE_W-1:0] {
     OP_CMP      = 6'd4,   // SUB with flags, no writeback
     OP_CMN      = 6'd5,   // ADD with flags, no writeback
     OP_ADRP_ADD = 6'd6,   // ADD portion of ADRP (Vj = PC & ~0xFFF, Vk = imm << 12)
+    // Logic
+    OP_AND      = 6'd7,
     // Unconditional branches
     OP_B        = 6'd8,
     OP_BL       = 6'd9,   // branch and link (writes return addr)
@@ -43,7 +45,13 @@ typedef enum logic [OPCODE_W-1:0] {
     OP_CBZ      = 6'd16,
     OP_CBNZ     = 6'd17,
     // Conditional branch (B.cond) - checks NZCV
-    OP_BCOND    = 6'd18
+    OP_BCOND    = 6'd18,
+    OP_ORR      = 6'd19,
+    OP_EOR      = 6'd20,
+    OP_ORN      = 6'd21,
+    OP_MVN      = 6'd22,
+    OP_ANDS     = 6'd23,
+    OP_TST      = 6'd24
 } adder_op_e;
 
 
@@ -97,7 +105,7 @@ typedef struct packed {
     logic [ROB_IDX_WIDTH-1:0]   rob_tag; // which ROB entry gets the result
     logic                       valid;
     logic [OPCODE_W-1:0]        op; // FU can do multiple micro-ops
-    logic                       nzcv;      // NZCV flags for this instruction 
+    logic [3:0]                 nzcv;      // NZCV flags for this instruction 
     cond_code_e                 branch_cond; // condition code for B.cond
     logic                      branch_target; // computed target
     logic                      branch_taken;  // computed taken/not taken (true value)

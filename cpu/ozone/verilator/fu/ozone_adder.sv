@@ -78,6 +78,7 @@ module ozone_rs_adder
   // Adder
   // -------------------------------------------------------
   logic [63:0] add_result;
+  logic        add_value_valid;
   logic [3:0]  add_nzcv;
   logic        add_flags_valid;
   logic        add_br_valid;
@@ -111,6 +112,7 @@ module ozone_rs_adder
 
     // Default outputs
     add_result      = issue_entry.Vj + issue_entry.Vk;
+    add_value_valid = 1'b1;
     add_flags_valid = 1'b0;
     add_nzcv        = 4'b0;
     add_br_valid    = 1'b0;
@@ -148,6 +150,7 @@ module ozone_rs_adder
       // compare — no dest value, just flags (same as SUBS)
       OP_CMP: begin
         add_result      = sub_result_ext[63:0];
+        add_value_valid = 1'b0;
         add_flags_valid = 1'b1;
         add_nzcv[3]     = add_result[63];           // N
         add_nzcv[2]     = (add_result == 64'b0);    // Z
@@ -158,6 +161,7 @@ module ozone_rs_adder
       // compare negative — flags only (same as ADDS)
       OP_CMN: begin
         add_result      = add_result_ext[63:0];
+        add_value_valid = 1'b0;
         add_flags_valid = 1'b1;
         add_nzcv[3]     = add_result[63];           // N
         add_nzcv[2]     = (add_result == 64'b0);    // Z
@@ -173,6 +177,7 @@ module ozone_rs_adder
 
       // unconditional branch (Vj = branch PC, Vk = branch offset)
       OP_B: begin
+        add_value_valid = 1'b0;
         add_br_valid  = 1'b1;
         add_br_taken  = 1'b1;
         add_br_target = issue_entry.Vj + issue_entry.Vk;
@@ -180,12 +185,14 @@ module ozone_rs_adder
 
       // branch and link (Vj = PC, Vk = branch offset)
       OP_BL: begin // no result. TODO: branches no result remember
+        add_value_valid = 1'b0;
         add_br_valid  = 1'b1;
         add_br_taken  = 1'b1;
         add_br_target = issue_entry.Vj + issue_entry.Vk;
       end
 
       OP_BCOND: begin
+        add_value_valid = 1'b0;
         // NZCV bit positions: [3]=N, [2]=Z, [1]=C, [0]=V
         add_br_valid  = 1'b1;
         case (issue_entry.branch_cond)
@@ -278,6 +285,36 @@ module ozone_rs_adder
               entries[i].rob_tag == issue_entry.rob_tag) begin
             entries[i].valid <= 1'b0;
             break;
+          end
+        end
+
+        // Wake dependent entries directly from the value produced by the
+        // instruction issuing this cycle, instead of waiting for the CDB loop.
+        if (add_value_valid) begin
+          for (int i = 0; i < DEPTH; i++) begin
+            if (entries[i].valid &&
+                entries[i].Qj == issue_entry.rob_tag) begin
+              entries[i].Vj <= add_result;
+              entries[i].Qj <= '0;
+            end
+            if (entries[i].valid &&
+                entries[i].Qk == issue_entry.rob_tag) begin
+              entries[i].Vk <= add_result;
+              entries[i].Qk <= '0;
+            end
+          end
+        end
+
+        // Wake a waiting B.cond directly from the flags produced by the
+        // instruction issuing this cycle, instead of waiting for the CDB loop.
+        if (add_flags_valid) begin
+          for (int i = 0; i < DEPTH; i++) begin
+            if (entries[i].valid       &&
+                entries[i].op == OP_BCOND &&
+                entries[i].Qj == issue_entry.rob_tag) begin
+              entries[i].nzcv <= add_nzcv;
+              entries[i].Qj   <= '0;
+            end
           end
         end
 
