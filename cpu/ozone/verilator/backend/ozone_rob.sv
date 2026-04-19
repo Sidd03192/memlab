@@ -161,15 +161,17 @@ module ozone_rob
 
             // cdb writeback update (after commit, before alloc)
             if (cdb_in.valid) begin
-                rob_entries[cdb_in.rob_tag].ready     <= 1'b1;
-                rob_entries[cdb_in.rob_tag].value     <= cdb_in.value;
-                rob_entries[cdb_in.rob_tag].update_nzcv <= cdb_in.update_nzcv;
-                rob_entries[cdb_in.rob_tag].nzcv      <= cdb_in.nzcv;
-                rob_entries[cdb_in.rob_tag].exc       <= cdb_in.exc;
-                rob_entries[cdb_in.rob_tag].exc_code  <= cdb_in.exc_code[3:0];
-                if (cdb_in.br_valid) begin // branch stuff if branch
-                    rob_entries[cdb_in.rob_tag].br_taken  <= cdb_in.br_taken;
-                    rob_entries[cdb_in.rob_tag].br_target <= cdb_in.br_target;
+                if (cdb_in.rob_wb_en) begin
+                    rob_entries[cdb_in.rob_tag].ready       <= 1'b1;
+                    rob_entries[cdb_in.rob_tag].value       <= cdb_in.value;
+                    rob_entries[cdb_in.rob_tag].update_nzcv <= cdb_in.update_nzcv;
+                    rob_entries[cdb_in.rob_tag].nzcv        <= cdb_in.nzcv;
+                    rob_entries[cdb_in.rob_tag].exc         <= cdb_in.exc;
+                    rob_entries[cdb_in.rob_tag].exc_code    <= cdb_in.exc_code[3:0];
+                    if (cdb_in.br_valid) begin // branch stuff if branch
+                        rob_entries[cdb_in.rob_tag].br_taken  <= cdb_in.br_taken;
+                        rob_entries[cdb_in.rob_tag].br_target <= cdb_in.br_target;
+                    end
                 end
             end
 

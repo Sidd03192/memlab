@@ -116,6 +116,7 @@ typedef struct packed {
 typedef struct packed {
     logic                       valid;        // result ready to broadcast
     logic [ROB_IDX_WIDTH-1:0]   rob_tag;      // which ROB entry completed
+    logic                       rob_wb_en;    // this CDB payload completes the ROB entry
     logic [63:0]                value;        // computed result 
     
     // flags (for ALU ops like ADDS, SUBS, CMP)

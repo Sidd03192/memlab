@@ -220,6 +220,7 @@ module ozone_logic
         // connect result wires
         result.valid       <= 1'b1;
         result.rob_tag     <= issue_entry.rob_tag;
+        result.rob_wb_en   <= 1'b1;
         result.value       <= logic_result;
         result.update_nzcv <= logic_flags_valid;
         result.nzcv        <= logic_nzcv;
