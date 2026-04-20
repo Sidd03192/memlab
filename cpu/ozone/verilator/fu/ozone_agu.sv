@@ -1,5 +1,5 @@
 // Address Generation Unit with its local reservation station: compute effective
-// addresses for loads/stores and write them back for LSQ/MEM uops via CDB.
+// addresses for loads/stores and broadcast them for LSQ resolution via CDB.
 module ozone_agu
   import ozone_pkg::*;
 #(
@@ -70,9 +70,8 @@ module ozone_agu
   logic [63:0] add_result;
  
   always_comb begin
-    // All AGU ops are base + offset; op field selects whether
-    // wb_en should be asserted (loads/pre-post-index writeback)
-    // but the arithmetic is always the same.
+    // All AGU ops are base + offset. The AGU only produces effective
+    // addresses, so the arithmetic is always the same.
     add_result = issue_entry.Vj + issue_entry.Vk;
   end
  
@@ -130,30 +129,14 @@ module ozone_agu
           end
         end
  
-        // Only AGU ops that intentionally write a register should wake
-        // normal value dependents. Pure EA broadcasts are for the LSQ.
-        if (issue_entry.has_rd) begin
-          for (int i = 0; i < DEPTH; i++) begin
-            if (entries[i].valid &&
-                entries[i].Qj == issue_entry.rob_tag) begin
-              entries[i].Vj <= add_result;
-              entries[i].Qj <= '0;
-            end
-            if (entries[i].valid &&
-                entries[i].Qk == issue_entry.rob_tag) begin
-              entries[i].Vk <= add_result;
-              entries[i].Qk <= '0;
-            end
-          end
-        end
- 
         // Latch result for CDB broadcast.
-        // Pure effective-address broadcasts stay visible on the shared CDB
-        // so the LSQ can consume them, but they are not generic value wakeups.
+        // AGU results are effective addresses only. They stay visible on the
+        // shared CDB so the LSQ can consume them, but they are never generic
+        // value wakeups or direct ROB completions.
         result.valid       <= 1'b1;
         result.rob_tag     <= issue_entry.rob_tag;
-        result.cdb_value_en<= issue_entry.has_rd;   // set by dispatch
-        result.rob_wb_en   <= issue_entry.has_rd;   // set by dispatch
+        result.cdb_value_en<= 1'b0;
+        result.rob_wb_en   <= 1'b0;
         result.value       <= add_result;
         result.update_nzcv <= 1'b0;
         result.nzcv        <= 4'b0;
