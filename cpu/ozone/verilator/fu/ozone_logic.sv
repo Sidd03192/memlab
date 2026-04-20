@@ -159,7 +159,7 @@ module ozone_logic
     end else begin
 
       // --- CDB snoop --- (dont need to read for the nzcv cause nothing relies)
-      if (cdb_in.valid) begin
+      if (cdb_in.valid && cdb_in.cdb_value_en) begin
         for (int i = 0; i < DEPTH; i++) begin
           if (entries[i].valid) begin
             if (entries[i].Qj != '0 &&
@@ -220,6 +220,7 @@ module ozone_logic
         // connect result wires
         result.valid       <= 1'b1;
         result.rob_tag     <= issue_entry.rob_tag;
+        result.cdb_value_en<= 1'b1;
         result.rob_wb_en   <= 1'b1;
         result.value       <= logic_result;
         result.update_nzcv <= logic_flags_valid;

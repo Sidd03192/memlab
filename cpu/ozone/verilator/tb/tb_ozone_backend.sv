@@ -39,6 +39,7 @@ module tb_ozone_cdb;
         req             = '0;
         req.valid       = 1'b1;
         req.rob_tag     = tag;
+        req.cdb_value_en= 1'b1;
         req.rob_wb_en   = 1'b1;
         req.value       = value;
         make_req        = req;

@@ -249,13 +249,14 @@ module ozone_rs_adder
                   entries[i].nzcv <= cdb_in.nzcv;
                   entries[i].Qj   <= '0;
                 end
-              end else begin
+              end else if (cdb_in.cdb_value_en) begin
                 entries[i].Vj <= cdb_in.value;
                 entries[i].Qj <= '0;
               end
             end
             if (entries[i].Qk != '0 &&
-                entries[i].Qk == cdb_in.rob_tag) begin
+                entries[i].Qk == cdb_in.rob_tag &&
+                cdb_in.cdb_value_en) begin
               entries[i].Vk <= cdb_in.value;
               entries[i].Qk <= '0;
             end
@@ -322,6 +323,7 @@ module ozone_rs_adder
         // connect result wires
         result.valid       <= 1'b1;
         result.rob_tag     <= issue_entry.rob_tag;
+        result.cdb_value_en<= 1'b1;
         result.rob_wb_en   <= 1'b1;
         result.value       <= add_result;
         result.update_nzcv <= add_flags_valid;

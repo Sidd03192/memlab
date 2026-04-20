@@ -86,11 +86,13 @@ module ozone_rob
         src2_value = rob_entries[src2_rob_idx].value;
 
         // if CDB broadcast matches what we are reading from... forward.
-        if (cdb_in.valid && cdb_in.rob_tag == src1_rob_idx) begin
+        if (cdb_in.valid && cdb_in.cdb_value_en &&
+            cdb_in.rob_tag == src1_rob_idx) begin
             src1_ready = 1'b1;
             src1_value = cdb_in.value;
         end
-        if (cdb_in.valid && cdb_in.rob_tag == src2_rob_idx) begin
+        if (cdb_in.valid && cdb_in.cdb_value_en &&
+            cdb_in.rob_tag == src2_rob_idx) begin
             src2_ready = 1'b1;
             src2_value = cdb_in.value;
         end

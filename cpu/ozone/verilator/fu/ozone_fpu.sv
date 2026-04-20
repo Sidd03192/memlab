@@ -149,7 +149,7 @@ module ozone_rs_fpmult
       // =======================================================
       // 1. CDB snoop – wake dependent entries
       // =======================================================
-      if (cdb_in.valid) begin
+      if (cdb_in.valid && cdb_in.cdb_value_en) begin
         for (int i = 0; i < DEPTH; i++) begin
           if (entries[i].valid) begin
             if (entries[i].Qj != '0 &&
@@ -433,6 +433,7 @@ module ozone_rs_fpmult
           // Write into result broadcast register (mirrors adder)
           result.valid       <= 1'b1;
           result.rob_tag     <= dp_entry.rob_tag;
+          result.cdb_value_en<= 1'b1;
           result.rob_wb_en   <= 1'b1;
           result.value       <= 64'(fp_result);  // zero-extend to 64-bit bus
           result.update_nzcv <= 1'b0;
