@@ -129,10 +129,13 @@ module ozone_rob
         commit_nzcv_value   = head_entry.nzcv;
         commit_nzcv_rob_idx = head;
 
-        // TODO: need to amek sure we handle bp and lsq stuff. 
-        lsq_store_commit    = 1'b0;
-        lsq_store_addr      = '0;
-        lsq_store_data      = '0;
+        // When a ready store reaches the ROB head, pulse the LSQ so it can
+        // retire its head store to memory. The store payload stays available
+        // on the sideband outputs for any integration that still wants it.
+        lsq_store_commit    = head_can_commit &&
+                              (head_entry.inst_type == ROB_TYPE_STORE);
+        lsq_store_addr      = head_entry.store_addr;
+        lsq_store_data      = head_entry.value;
 
         bp_update_valid     = 1'b0;
         bp_update_pc        = '0;
