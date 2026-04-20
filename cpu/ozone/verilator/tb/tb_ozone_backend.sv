@@ -223,6 +223,20 @@ module tb_ozone_backend;
     cdb_broadcast_t            logic_req;
     logic                      logic_granted;
 
+    // agu
+    logic                      agu_alloc_valid;
+    rs_entry_add_t             agu_alloc_entry;
+    logic                      agu_full;
+    cdb_broadcast_t            agu_req;
+    logic                      agu_granted;
+
+    // fpu
+    logic                      fpu_alloc_valid;
+    rs_entry_fpmul_t           fpu_alloc_entry;
+    logic                      fpu_full;
+    cdb_broadcast_t            fpu_req;
+    logic                      fpu_granted;
+
     // cdb
     cdb_broadcast_t            cdb_broadcast;
     cdb_broadcast_t            zero_req;
@@ -333,17 +347,41 @@ module tb_ozone_backend;
         .cdb_granted(logic_granted)
     );
 
+    ozone_agu #(.DEPTH(DEPTH)) agu (
+        .clk(clk),
+        .rst_n(rst_n),
+        .flush(reg_flush),
+        .alloc_valid(agu_alloc_valid),
+        .alloc_entry(agu_alloc_entry),
+        .full(agu_full),
+        .cdb_in(cdb_broadcast),
+        .cdb_out(agu_req),
+        .cdb_granted(agu_granted)
+    );
+
+    ozone_rs_fpmult #(.DEPTH(DEPTH), .P(8), .Q(8)) fpu (
+        .clk(clk),
+        .rst_n(rst_n),
+        .flush(reg_flush),
+        .alloc_valid(fpu_alloc_valid),
+        .alloc_entry(fpu_alloc_entry),
+        .full(fpu_full),
+        .cdb_in(cdb_broadcast),
+        .cdb_out(fpu_req),
+        .cdb_granted(fpu_granted)
+    );
+
     ozone_cdb cdb (
         .adder_req(adder_req),
         .logic_req(logic_req),
-        .fpu_req(zero_req),
-        .mem_req(zero_req),
+        .fpu_req(fpu_req),
+        .mem_req(agu_req),
         .rob_head(rob_head),
         .cdb_broadcast(cdb_broadcast),
         .adder_granted(adder_granted),
         .logic_granted(logic_granted),
-        .fpu_granted(),
-        .mem_granted()
+        .fpu_granted(fpu_granted),
+        .mem_granted(agu_granted)
     );
 
     initial clk = 1'b0;
@@ -372,6 +410,10 @@ module tb_ozone_backend;
             adder_alloc_entry = '0;
             logic_alloc_valid = 1'b0;
             logic_alloc_entry = '0;
+            agu_alloc_valid   = 1'b0;
+            agu_alloc_entry   = '0;
+            fpu_alloc_valid   = 1'b0;
+            fpu_alloc_entry   = '0;
         end
     endtask
 
@@ -400,6 +442,14 @@ module tb_ozone_backend;
             regstate.nzcv_reg.value   = {60'b0, flags};
             regstate.nzcv_reg.busy    = 1'b0;
             regstate.nzcv_reg.rob_idx = '0;
+        end
+    endtask
+
+    task automatic preload_fpr(input int idx, input logic [63:0] value);
+        begin
+            regstate.fp_reg[idx].value   = value;
+            regstate.fp_reg[idx].busy    = 1'b0;
+            regstate.fp_reg[idx].rob_idx = '0;
         end
     endtask
 
@@ -501,6 +551,49 @@ module tb_ozone_backend;
             end else begin
                 flags = '0;
                 q     = nzcv_status.rob_idx;
+            end
+        end
+    endtask
+
+    task automatic resolve_fp_sources(
+        input  logic [4:0] reg_a,
+        input  logic [4:0] reg_b,
+        output logic [63:0] vj,
+        output logic [ROB_IDX_WIDTH-1:0] qj,
+        output logic [63:0] vk,
+        output logic [ROB_IDX_WIDTH-1:0] qk
+    );
+        begin
+            fp_src1_addr = reg_a;
+            fp_src2_addr = reg_b;
+            src1_rob_idx = '0;
+            src2_rob_idx = '0;
+            #1;
+
+            src1_rob_idx = fp_src1_status.rob_idx;
+            src2_rob_idx = fp_src2_status.rob_idx;
+            #1;
+
+            if (!fp_src1_status.busy) begin
+                vj = fp_src1_status.value;
+                qj = '0;
+            end else if (src1_ready) begin
+                vj = src1_value;
+                qj = '0;
+            end else begin
+                vj = '0;
+                qj = fp_src1_status.rob_idx;
+            end
+
+            if (!fp_src2_status.busy) begin
+                vk = fp_src2_status.value;
+                qk = '0;
+            end else if (src2_ready) begin
+                vk = src2_value;
+                qk = '0;
+            end else begin
+                vk = '0;
+                qk = fp_src2_status.rob_idx;
             end
         end
     endtask
@@ -655,6 +748,94 @@ module tb_ozone_backend;
         end
     endtask
 
+    task automatic dispatch_agu_rr(
+        input  rob_type_e inst_type,
+        input  logic [4:0] reg_a,
+        input  logic [4:0] reg_b,
+        output logic [ROB_IDX_WIDTH-1:0] tag_out
+    );
+        logic [63:0] vj;
+        logic [63:0] vk;
+        logic [ROB_IDX_WIDTH-1:0] qj;
+        logic [ROB_IDX_WIDTH-1:0] qk;
+        rs_entry_add_t entry;
+        rob_entry_t rob_entry;
+        begin
+            while (rob_full || agu_full) @(negedge clk);
+            resolve_gpr_sources(reg_a, reg_b, vj, qj, vk, qk);
+            tag_out = alloc_rob_idx;
+
+            entry         = '0;
+            entry.Vj      = vj;
+            entry.Vk      = vk;
+            entry.Qj      = qj;
+            entry.Qk      = qk;
+            entry.rob_tag = tag_out;
+            entry.op      = OP_ADD;
+
+            rob_entry               = '0;
+            rob_entry.inst_type     = inst_type;
+            rob_entry.dest_type     = DEST_NONE;
+            rob_entry.alloc_has_dest = 1'b0;
+
+            @(negedge clk);
+            alloc_data      = rob_entry;
+            alloc_has_dest  = 1'b0;
+            rob_alloc_valid = 1'b1;
+            agu_alloc_entry = entry;
+            agu_alloc_valid = 1'b1;
+            @(posedge clk);
+            #1;
+            clear_inputs();
+        end
+    endtask
+
+    task automatic dispatch_fpu_rr(
+        input  logic [4:0] reg_a,
+        input  logic [4:0] reg_b,
+        input  logic [4:0] dest_reg,
+        output logic [ROB_IDX_WIDTH-1:0] tag_out
+    );
+        logic [63:0] vj;
+        logic [63:0] vk;
+        logic [ROB_IDX_WIDTH-1:0] qj;
+        logic [ROB_IDX_WIDTH-1:0] qk;
+        rs_entry_fpmul_t entry;
+        rob_entry_t rob_entry;
+        begin
+            while (rob_full || fpu_full) @(negedge clk);
+            resolve_fp_sources(reg_a, reg_b, vj, qj, vk, qk);
+            tag_out = alloc_rob_idx;
+
+            entry            = '0;
+            entry.Vj         = vj;
+            entry.Vk         = vk;
+            entry.Qj         = qj;
+            entry.Qk         = qk;
+            entry.rob_tag    = tag_out;
+            entry.round_mode = 2'b00;
+
+            rob_entry                = '0;
+            rob_entry.inst_type      = ROB_TYPE_ALU;
+            rob_entry.dest_reg       = dest_reg;
+            rob_entry.dest_type      = DEST_FPR;
+            rob_entry.alloc_has_dest = 1'b1;
+
+            @(negedge clk);
+            alloc_data       = rob_entry;
+            alloc_has_dest   = 1'b1;
+            rob_alloc_valid  = 1'b1;
+            fpu_alloc_entry  = entry;
+            fpu_alloc_valid  = 1'b1;
+            disp_fp_wr_en    = 1'b1;
+            disp_fp_wr_addr  = dest_reg;
+            disp_fp_rob_idx  = tag_out;
+            @(posedge clk);
+            #1;
+            clear_inputs();
+        end
+    endtask
+
     function automatic int find_adder_slot(input logic [ROB_IDX_WIDTH-1:0] tag);
         int idx;
         begin
@@ -678,6 +859,26 @@ module tb_ozone_backend;
             end
         end
     endfunction
+
+    task automatic wait_for_fpr_value(
+        input int reg_idx,
+        input logic [63:0] expected,
+        input string label
+    );
+        int cycles;
+        begin
+            cycles = 0;
+            while (((regstate.fp_reg[reg_idx].value !== expected) ||
+                    regstate.fp_reg[reg_idx].busy) &&
+                   (cycles < 80)) begin
+                @(posedge clk);
+                #1;
+                cycles++;
+            end
+            check_u64(regstate.fp_reg[reg_idx].value, expected, label);
+            check_true(!regstate.fp_reg[reg_idx].busy, {label, " busy clear"});
+        end
+    endtask
 
     task automatic wait_for_gpr_value(
         input int reg_idx,
@@ -888,6 +1089,57 @@ module tb_ozone_backend;
         end
     endtask
 
+    task automatic test_agu_address_only_broadcast();
+        logic [ROB_IDX_WIDTH-1:0] agu_tag;
+        begin
+            $display("Running AGU address-only broadcast");
+            reset_dut();
+            preload_gpr(1, 64'h1000);
+            preload_gpr(2, 64'h0020);
+            dispatch_agu_rr(ROB_TYPE_LOAD, 5'd1, 5'd2, agu_tag);
+
+            while (!(agu_req.valid && agu_req.rob_tag == agu_tag)) begin
+                @(posedge clk);
+                #1;
+            end
+
+            check_u64(agu_req.value, 64'h1020, "agu effective address");
+            check_true(!agu_req.cdb_value_en, "agu cdb value disabled");
+            check_true(!agu_req.rob_wb_en, "agu rob writeback disabled");
+            check_true(cdb_broadcast.valid, "agu wins cdb");
+            check_true(!cdb_broadcast.cdb_value_en, "cdb marks agu as non-value");
+            check_true(!rob.rob_entries[agu_tag].ready, "agu does not mark rob entry ready");
+
+            src1_rob_idx = agu_tag;
+            #1;
+            check_true(!src1_ready, "rob source forwarding ignores agu address");
+            clear_inputs();
+        end
+    endtask
+
+    task automatic test_basic_fpu_commit();
+        logic [ROB_IDX_WIDTH-1:0] fpu_tag;
+        begin
+            $display("Running basic fpu commit");
+            reset_dut();
+            preload_fpr(1, 64'h0000_0000_0000_3f80); // 1.0 in the FPU's 16-bit format
+            preload_fpr(2, 64'h0000_0000_0000_3f80); // 1.0 in the FPU's 16-bit format
+            dispatch_fpu_rr(5'd1, 5'd2, 5'd3, fpu_tag);
+
+            while (!(fpu.result.valid && fpu.result.rob_tag == fpu_tag)) begin
+                @(posedge clk);
+                #1;
+            end
+
+            check_true(fpu.result.cdb_value_en, "fpu marks cdb value valid");
+            check_true(fpu.result.rob_wb_en, "fpu marks rob writeback valid");
+            check_u64(fpu.result.value, 64'h0000_0000_0000_3f80, "fpu result value");
+
+            wait_for_fpr_value(3, 64'h0000_0000_0000_3f80, "fpu commit f3");
+            check_true(rob.rob_entries[fpu_tag].ready, "fpu rob entry became ready");
+        end
+    endtask
+
     initial begin
         failures = 0;
         clear_inputs();
@@ -898,6 +1150,8 @@ module tb_ozone_backend;
         test_adder_internal_forwarding();
         test_logic_internal_forwarding();
         test_nzcv_and_bcond_forwarding();
+        test_agu_address_only_broadcast();
+        test_basic_fpu_commit();
 
         if (failures != 0) begin
             $fatal(1, "tb_ozone_backend failed with %0d failures", failures);
