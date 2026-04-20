@@ -97,7 +97,7 @@ typedef struct packed {
 
 
 typedef struct packed {
-    logic                       value;     // computed value (when ready)
+    logic [63:0]                value;     // computed value (when ready)
     logic [63:0]                Vj;       // value of source 1 (when ready)
     logic [63:0]                Vk;       // value of source 2 (when ready)
     logic [ROB_IDX_WIDTH-1:0]   Qj;       // ROB tag for source 1 (0 = ready)
@@ -110,8 +110,18 @@ typedef struct packed {
     logic                      branch_target; // computed target
     logic                      branch_taken;  // computed taken/not taken (true value)
     logic                      pred_taken;    // branch predictor's taken/not-taken decision
+    logic                      has_rd;        // use for AGU, marks if op writes back to register file
 } rs_entry_add_t;
 
+typedef struct packed {
+  logic              valid;
+  rob_tag_t          rob_tag;
+  logic [63:0]       Vj;          // operand X (FP word in low P+Q bits)
+  logic [63:0]       Vk;          // operand Y (FP word in low P+Q bits)
+  rob_tag_t          Qj;          // producer tag for Vj (0 = ready)
+  rob_tag_t          Qk;          // producer tag for Vk (0 = ready)
+  logic [1:0]        round_mode;  // rounding specifier
+} rs_entry_fpmul_t;
 
 typedef struct packed {
     logic                       valid;        // result ready to broadcast
