@@ -51,7 +51,10 @@ typedef enum logic [OPCODE_W-1:0] {
     OP_ORN      = 6'd21,
     OP_MVN      = 6'd22,
     OP_ANDS     = 6'd23,
-    OP_TST      = 6'd24
+    OP_TST      = 6'd24,
+    OP_LSL      = 6'd25,
+    OP_LSR      = 6'd26,
+    OP_ASR      = 6'd27
 } adder_op_e;
 
 
