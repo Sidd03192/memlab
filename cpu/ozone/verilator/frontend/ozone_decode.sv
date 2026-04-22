@@ -2,7 +2,6 @@
 // source/destination fields, immediates, and emit one or more backend uops.
 
 
-// TODO: HANDLE FLOATING POINT STUFF. URGENT. URGENT. URGENT.
 module ozone_decode
 (
     input logic clk,
@@ -16,7 +15,7 @@ module ozone_decode
 
     output logic decoder_ready,
     output uop_t uop_out[2],
-    output logic uop_valid,
+    output logic uop_valid
 );
 
     logic [31:0] insn_bits;
@@ -89,6 +88,13 @@ module ozone_decode
             comb_ins_valid  = 1'b1;
         end
 
+        // Format 9 (FP): floating-point compute (FMOV/FNEG/FADD/FMUL/FSUB/FCMP).
+        // bits[31:21]=00011110011.
+        else if (insn_bits[31:21] == 11'b00011110011) begin
+            comb_ins_format = 4'd9;
+            comb_ins_valid  = 1'b1;
+        end
+
         // Format 6 (B2): conditional branch (B.cond).
         // bits[31:24]=01010100; bit[4] must be 0 (reserved).
         else if (insn_bits[31:24] == 8'b01010100 && insn_bits[4] == 1'b0) begin
@@ -138,7 +144,8 @@ module ozone_decode
         if (rst) begin
             decoder_state <= 0;
             uop_valid <= 1'b0;
-            uop_out   <= '0;
+            uop_out[0]   <= '0;
+            uop_out[1]   <= '0;
         end else begin
             case (decoder_state)
                 // 32 -> ZERO REGISTER
@@ -206,48 +213,60 @@ module ozone_decode
                             packet.reg_d  <= {1'b0, insn_bits[4:0]};
                             packet.imm    <= {{31{insn_bits[23]}}, insn_bits[23:5], insn_bits[30:29], 12'b0};
                         end
+                        9: begin
+                            // FP-format: bits[15:10] = function code
+                            packet.opcode <= {5'b0, insn_bits[15:10]};
+                            packet.reg_m  <= {1'b0, insn_bits[20:16]};
+                            packet.reg_n  <= {1'b0, insn_bits[9:5]};
+                            packet.reg_d  <= {1'b0, insn_bits[4:0]};
+                        end
                         default: begin end
                     endcase
 
-                    // // Print decoded fields for simulation/debug.
-                    // if (!comb_ins_valid) begin
-                    //     $display("[DECODE] 0x%08X -> INVALID (format=0x%X)",
-                    //              insn_bits, comb_ins_format);
-                    // end else begin
-                    //     case (comb_ins_format)
-                    //         4'd0: $display("[DECODE] M-format  | opcode=%b  imm=%0d  Rn=%0d  Rt=%0d  FP=%0b",
-                    //                        insn_bits[31:21],
-                    //                        $signed({{23{insn_bits[20]}}, insn_bits[20:12]}),
-                    //                        insn_bits[9:5], insn_bits[4:0],
-                    //                        insn_bits[26]);
-                    //         4'd1: $display("[DECODE] I1-format | opcode=%b  hw=%0d  imm16=0x%04X  Rd=%0d",
-                    //                        insn_bits[31:23], insn_bits[22:21],
-                    //                        insn_bits[20:5], insn_bits[4:0]);
-                    //         4'd2: $display("[DECODE] I2-format | opcode=%b  imm=%0d  Rt=%0d",
-                    //                        insn_bits[31:24],
-                    //                        $signed({{13{insn_bits[23]}}, insn_bits[23:5]}),
-                    //                        insn_bits[4:0]);
-                    //         4'd3: $display("[DECODE] RR-format | opcode=%b  shift=%0d  N=%0b  Rm=%0d  imm6=%0d  Rn=%0d  Rd=%0d",
-                    //                        insn_bits[31:24], insn_bits[23:22], insn_bits[21],
-                    //                        insn_bits[20:16], insn_bits[15:10],
-                    //                        insn_bits[9:5], insn_bits[4:0]);
-                    //         4'd4: $display("[DECODE] RI-format | opcode=%b  imm=0x%03X  Rn=%0d  Rd=%0d",
-                    //                        insn_bits[31:23], insn_bits[21:10],
-                    //                        insn_bits[9:5], insn_bits[4:0]);
-                    //         4'd5: $display("[DECODE] B1-format | opcode=%b  imm26=%0d",
-                    //                        insn_bits[31:26],
-                    //                        $signed({{6{insn_bits[25]}}, insn_bits[25:0]}));
-                    //         4'd6: $display("[DECODE] B2-format | opcode=%b  imm19=%0d  cond=0x%X",
-                    //                        insn_bits[31:24],
-                    //                        $signed({{13{insn_bits[23]}}, insn_bits[23:5]}),
-                    //                        insn_bits[3:0]);
-                    //         4'd7: $display("[DECODE] B3-format | opcode=%b  Rn=%0d",
-                    //                        insn_bits[31:21], insn_bits[9:5]);
-                    //         4'd8: $display("[DECODE] S-format  | opcode=%b",
-                    //                        insn_bits[31:21]);
-                    //         default: ;
-                    //     endcase
-                    // end
+                    // Print decoded fields for simulation/debug.
+                    if (!comb_ins_valid) begin
+                        $display("[DECODE] 0x%08X -> INVALID (format=0x%X)",
+                                 insn_bits, comb_ins_format);
+                    end else begin
+                        case (comb_ins_format)
+                            4'd0: $display("[DECODE] M-format  | opcode=%b  imm=%0d  Rn=%0d  Rt=%0d  FP=%0b",
+                                           insn_bits[31:21],
+                                           $signed({{23{insn_bits[20]}}, insn_bits[20:12]}),
+                                           insn_bits[9:5], insn_bits[4:0],
+                                           insn_bits[26]);
+                            4'd1: $display("[DECODE] I1-format | opcode=%b  hw=%0d  imm16=0x%04X  Rd=%0d",
+                                           insn_bits[31:23], insn_bits[22:21],
+                                           insn_bits[20:5], insn_bits[4:0]);
+                            4'd2: $display("[DECODE] I2-format | opcode=%b  imm=%0d  Rt=%0d",
+                                           insn_bits[31:24],
+                                           $signed({{13{insn_bits[23]}}, insn_bits[23:5]}),
+                                           insn_bits[4:0]);
+                            4'd3: $display("[DECODE] RR-format | opcode=%b  shift=%0d  N=%0b  Rm=%0d  imm6=%0d  Rn=%0d  Rd=%0d",
+                                           insn_bits[31:24], insn_bits[23:22], insn_bits[21],
+                                           insn_bits[20:16], insn_bits[15:10],
+                                           insn_bits[9:5], insn_bits[4:0]);
+                            4'd4: $display("[DECODE] RI-format | opcode=%b  imm=0x%03X  Rn=%0d  Rd=%0d",
+                                           insn_bits[31:23], insn_bits[21:10],
+                                           insn_bits[9:5], insn_bits[4:0]);
+                            4'd5: $display("[DECODE] B1-format | opcode=%b  imm26=%0d",
+                                           insn_bits[31:26],
+                                           $signed({{6{insn_bits[25]}}, insn_bits[25:0]}));
+                            4'd6: $display("[DECODE] B2-format | opcode=%b  imm19=%0d  cond=0x%X",
+                                           insn_bits[31:24],
+                                           $signed({{13{insn_bits[23]}}, insn_bits[23:5]}),
+                                           insn_bits[3:0]);
+                            4'd7: $display("[DECODE] B3-format | opcode=%b  Rn=%0d",
+                                           insn_bits[31:21], insn_bits[9:5]);
+                            4'd8: $display("[DECODE] S-format  | opcode=%b",
+                                           insn_bits[31:21]);
+                            4'd9: $display("[DECODE] FP-format | opcode=%b  Rm=%0d  Rn=%0d  Rd=%0d",
+                                           insn_bits[15:10],
+                                           insn_bits[20:16], 
+                                           insn_bits[9:5], 
+                                           insn_bits[4:0]);
+                            default: ;
+                        endcase
+                    end
 
                     decoder_state <= 2;
                 end
@@ -255,7 +274,17 @@ module ozone_decode
                 // Micro-op generation: fill uop_t fields from decoded packet.
                 2: begin
                     uop_valid <= 1'b1;
+
+                    uop_out[0]    <= '0;
+                    uop_out[0].a  <= 6'd32;
+                    uop_out[0].b  <= 6'd32;
+                    uop_out[0].c  <= 6'd32;
                     uop_out[0].pc <= insn_pc;
+
+                    uop_out[1]    <= '0;
+                    uop_out[1].a  <= 6'd32;
+                    uop_out[1].b  <= 6'd32;
+                    uop_out[1].c  <= 6'd32;
                     uop_out[1].pc <= insn_pc;
 
                     case (comb_ins_format)
@@ -393,7 +422,7 @@ module ozone_decode
                             uop_out[0].uop_type <= UOP_COND_CHECK;
                             uop_out[0].imm_opnd <= 1'b1;
                             uop_out[0].imm_bits <= {{32{packet.imm[31]}}, packet.imm};
-                            uop_out[0].check_cond <= 1;
+                            uop_out[0].check_target <= 1;
                         end
 
                         4'd7: begin  // B3: BR / BLR / RET
@@ -403,15 +432,110 @@ module ozone_decode
                             uop_out[0].b            <= packet.reg_n;
                             uop_out[0].c            <= 6'd32;
                             uop_out[0].check_target <= 1;
-                            // TODO: ERET.
                         end
 
                         4'd8: begin  // S: system / ADRP
-                            uop_out[0].uop_type <= UOP_ADD;
-                            uop_out[0].a        <= packet.reg_d;
-                            uop_out[0].imm_opnd <= 1'b1;
-                            uop_out[0].imm_bits <= packet.imm;
-                            // TODO: MSR, MRS
+                            if (insn_bits[31:21] == 11'b11010110100) begin  // ERET
+                                uop_out[0].uop_type <= UOP_ERET;
+                            end else if (insn_bits[31:22] == 10'b1101010100) begin  // MRS / MSR
+                                uop_out[0].uop_type <= UOP_OR;
+                                uop_out[0].imm_opnd <= 1'b1;
+                                uop_out[0].imm_bits <= {48'b0, insn_bits[20:5]};  // sysreg ID
+                                if (insn_bits[21]) begin  // MRS: sysreg -> Xt
+                                    uop_out[0].a <= packet.reg_d;
+                                    uop_out[0].b <= 6'd32;
+                                end else begin  // MSR: Xt -> sysreg
+                                    uop_out[0].a <= 6'd32;
+                                    uop_out[0].b <= packet.reg_d;
+                                end
+                            end else begin  // ADRP / SVC / NOP
+                                uop_out[0].uop_type <= UOP_ADD;
+                                uop_out[0].a        <= packet.reg_d;
+                                uop_out[0].imm_opnd <= 1'b1;
+                                uop_out[0].imm_bits <= packet.imm;
+                            end
+                        end
+
+                        4'd9: begin  // FP compute
+                            case (packet.opcode[5:0])
+                                6'b010000: begin  // FMOV (Rm=0), FNEG (Rm=1), FCMP-imm (Rm=8)
+                                    case (packet.reg_m)
+                                        6'd0: begin  // FMOV
+                                            uop_out[0].uop_type <= UOP_OR;
+                                            uop_out[0].a        <= packet.reg_d;
+                                            uop_out[0].b        <= packet.reg_n;
+                                            uop_out[0].fp_bit   <= 1'b1;
+                                        end
+                                        6'd1: begin  // FNEG
+                                            uop_out[0].uop_type <= UOP_XOR;
+                                            uop_out[0].a        <= packet.reg_d;
+                                            uop_out[0].b        <= packet.reg_n;
+                                            uop_out[0].imm_opnd <= 1'b1;
+                                            uop_out[0].imm_bits <= 64'h8000000000000000;
+                                            uop_out[0].fp_bit   <= 1'b1;
+                                        end
+                                        6'd8: begin  // FCMP (immediate, compare with 0.0)
+                                            uop_out[0].uop_type <= UOP_NAN_CHECK;
+                                            uop_out[0].b        <= packet.reg_n;
+                                            uop_out[0].fp_bit   <= 1'b1;
+                                            uop_out[1].uop_type  <= UOP_ADD;
+                                            uop_out[1].b         <= packet.reg_n;
+                                            uop_out[1].imm_opnd  <= 1'b1;
+                                            uop_out[1].imm_bits  <= 64'b0;
+                                            uop_out[1].set_flags <= 1'b1;
+                                            uop_out[1].fp_bit    <= 1'b1;
+                                        end
+                                        default: ;
+                                    endcase
+                                end
+                                6'b001010: begin  // FADD
+                                    uop_out[0].uop_type <= UOP_NAN_CHECK;
+                                    uop_out[0].b        <= packet.reg_n;
+                                    uop_out[0].c        <= packet.reg_m;
+                                    uop_out[0].fp_bit   <= 1'b1;
+                                    uop_out[1].uop_type <= UOP_FADD;
+                                    uop_out[1].a        <= packet.reg_d;
+                                    uop_out[1].b        <= packet.reg_n;
+                                    uop_out[1].c        <= packet.reg_m;
+                                    uop_out[1].fp_bit   <= 1'b1;
+                                end
+                                6'b000010: begin  // FMUL
+                                    uop_out[0].uop_type <= UOP_NAN_CHECK;
+                                    uop_out[0].b        <= packet.reg_n;
+                                    uop_out[0].c        <= packet.reg_m;
+                                    uop_out[0].fp_bit   <= 1'b1;
+                                    uop_out[1].uop_type <= UOP_FMUL;
+                                    uop_out[1].a        <= packet.reg_d;
+                                    uop_out[1].b        <= packet.reg_n;
+                                    uop_out[1].c        <= packet.reg_m;
+                                    uop_out[1].fp_bit   <= 1'b1;
+                                end
+                                6'b001110: begin  // FSUB: NAN_CHECK + FADD with negated Rm
+                                    uop_out[0].uop_type <= UOP_NAN_CHECK;
+                                    uop_out[0].b        <= packet.reg_n;
+                                    uop_out[0].c        <= packet.reg_m;
+                                    uop_out[0].fp_bit   <= 1'b1;
+                                    uop_out[1].uop_type     <= UOP_FADD;
+                                    uop_out[1].a            <= packet.reg_d;
+                                    uop_out[1].b            <= packet.reg_n;
+                                    uop_out[1].c            <= packet.reg_m;
+                                    uop_out[1].neg_c_or_imm <= 1'b1;
+                                    uop_out[1].fp_bit       <= 1'b1;
+                                end
+                                6'b001000: begin  // FCMP (register): compare, no writeback
+                                    uop_out[0].uop_type <= UOP_NAN_CHECK;
+                                    uop_out[0].b        <= packet.reg_n;
+                                    uop_out[0].c        <= packet.reg_m;
+                                    uop_out[0].fp_bit   <= 1'b1;
+                                    uop_out[1].uop_type  <= UOP_ADD;
+                                    uop_out[1].a         <= 6'd32;
+                                    uop_out[1].b         <= packet.reg_n;
+                                    uop_out[1].c         <= packet.reg_m;
+                                    uop_out[1].set_flags <= 1'b1;
+                                    uop_out[1].fp_bit    <= 1'b1;
+                                end
+                                default: ;
+                            endcase
                         end
 
                         default: uop_out[0].uop_type <= UOP_ADD;
