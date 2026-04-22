@@ -24,12 +24,21 @@ module tb_ozone_decode;
     logic        insn_ready;
     logic        decoder_ready;
 
+    logic [47:0] the_insn_pc = '0;
+    logic        ready_for_uop = 1'b1;
+    uop_t        uop_out[2];
+    logic        uop_valid;
+
     ozone_decode dut (
         .clk          (clk),
         .rst          (rst),
         .the_insn_bits(the_insn_bits),
+        .the_insn_pc  (the_insn_pc),
         .insn_ready   (insn_ready),
-        .decoder_ready(decoder_ready)
+        .ready_for_uop(ready_for_uop),
+        .decoder_ready(decoder_ready),
+        .uop_out      (uop_out),
+        .uop_valid    (uop_valid)
     );
 
     // 10 ns clock

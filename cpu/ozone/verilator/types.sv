@@ -12,7 +12,8 @@ typedef enum logic [3:0] {
     UOP_COND_CHECK = 4'd11,
     UOP_NAN_CHECK  = 4'd12,
     UOP_FADD       = 4'd13,
-    UOP_FMUL       = 4'd14
+    UOP_FMUL       = 4'd14,
+    UOP_ERET       = 4'd15
 } uop_type_e;
 
 typedef struct packed {

@@ -27,7 +27,7 @@ module tb_ozone_decode_cases;
 
     logic        decoder_ready;
     uop_t        uop_out[2];
-    logic        uop_valid[2];
+    logic        uop_valid;
 
     ozone_decode dut (
         .clk          (clk),
@@ -62,7 +62,15 @@ module tb_ozone_decode_cases;
         @(posedge clk);   // S1: crack packet   → DUT prints [S1]
         @(posedge clk);   // S2: generate uops  → DUT prints [S2]
         @(posedge clk);   // S3: uops settled   → DUT prints [S3]
-        #1;
+        // #1;
+
+        if (uop_valid) begin
+            $display("ACTUAL UOP0: type=%0d  a=%0d  b=%0d  c=%0d  imm=%0d  imm_bits=0x%016X  flags=%0d  neg=%0d  fp=%0d  chk=%0d",
+                uop_out[0].uop_type, uop_out[0].a, uop_out[0].b, uop_out[0].c, uop_out[0].imm_opnd, uop_out[0].imm_bits, uop_out[0].set_flags, uop_out[0].neg_c_or_imm, uop_out[0].fp_bit, uop_out[0].check_target);
+            
+            $display("ACTUAL UOP1: type=%0d  a=%0d  b=%0d  c=%0d  imm=%0d  imm_bits=0x%016X  flags=%0d  neg=%0d  fp=%0d  chk=%0d",
+                uop_out[1].uop_type, uop_out[1].a, uop_out[1].b, uop_out[1].c, uop_out[1].imm_opnd, uop_out[1].imm_bits, uop_out[1].set_flags, uop_out[1].neg_c_or_imm, uop_out[1].fp_bit, uop_out[1].check_target);
+        end
     endtask
 
     task automatic reset_dut();
@@ -365,6 +373,44 @@ module tb_ozone_decode_cases;
         $display("EXPECTED: NOTHING");
         $display("ACTUAL:");
         send_insn(32'hD503201F, 48'h106C);
+
+
+        // ==============================================================
+        // FORMAT 9 (FP): Floating-Point Arithmetic
+        // ==============================================================
+
+        $display("\n\n=== FMOV D1, D2  (0x1E604041) ===");
+        $display("EXPECTED:");
+        $display("[S3] UOP0: type=OR          a= 1  b= 2  c=32  imm=0  imm_bits=0x0000000000000000  flags=0  neg=0  fp=1  chk=0");
+        $display("ACTUAL:");
+        send_insn(32'h1E604041, 48'h1070);
+
+        $display("\n\n=== FNEG D1, D2  (0x1E614041) ===");
+        $display("EXPECTED:");
+        $display("[S3] UOP0: type=XOR         a= 1  b= 2  c= 0  imm=1  imm_bits=0x8000000000000000  flags=0  neg=0  fp=1  chk=0");
+        $display("ACTUAL:");
+        send_insn(32'h1E614041, 48'h1074);
+
+        $display("\n\n=== FADD D1, D2, D3  (0x1E632841) ===");
+        $display("EXPECTED:");
+        $display("[S3] UOP0: type=NAN_CHECK   a= 0  b= 2  c= 3  imm=0  imm_bits=0x0000000000000000  flags=0  neg=0  fp=1  chk=0");
+        $display("[S3] UOP1: type=FADD        a= 1  b= 2  c= 3  imm=0  imm_bits=0x0000000000000000  flags=0  neg=0  fp=1  chk=0");
+        $display("ACTUAL:");
+        send_insn(32'h1E632841, 48'h1078);
+
+        $display("\n\n=== FMUL D1, D2, D3  (0x1E630841) ===");
+        $display("EXPECTED:");
+        $display("[S3] UOP0: type=NAN_CHECK   a= 0  b= 2  c= 3  imm=0  imm_bits=0x0000000000000000  flags=0  neg=0  fp=1  chk=0");
+        $display("[S3] UOP1: type=FMUL        a= 1  b= 2  c= 3  imm=0  imm_bits=0x0000000000000000  flags=0  neg=0  fp=1  chk=0");
+        $display("ACTUAL:");
+        send_insn(32'h1E630841, 48'h107C);
+
+        $display("\n\n=== FSUB D1, D2, D3  (0x1E633841) ===");
+        $display("EXPECTED:");
+        $display("[S3] UOP0: type=NAN_CHECK   a= 0  b= 2  c= 3  imm=0  imm_bits=0x0000000000000000  flags=0  neg=0  fp=1  chk=0");
+        $display("[S3] UOP1: type=FADD        a= 1  b= 2  c= 3  imm=0  imm_bits=0x0000000000000000  flags=0  neg=1  fp=1  chk=0");
+        $display("ACTUAL:");
+        send_insn(32'h1E633841, 48'h1080);
 
         $display("\n\n=== All cases complete ===");
         $finish;
