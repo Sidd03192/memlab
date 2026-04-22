@@ -1,4 +1,385 @@
 // In-order dispatch/rename-control stage: read ARF or ROB tags via RST,
-// allocate ROB/LSQ entries, and enqueue uops into each FU reservation station.
-module ozone_dispatch;
+// allocate ROB entries, and enqueue uops into each FU reservation station.
+//
+// One uop is dispatched per cycle. Two-uop instructions stall decode for a
+// second cycle (Option B from the design discussion). ready_for_uop is
+// asserted on the cycle the LAST uop of an instruction is dispatched.
+//
+// UOP[1] validity: uop_out[1].uop_type == UOP_AGU (4'd0) means "no second
+// uop", because the decoder never places UOP_AGU in slot 1 — slot 1 is only
+// populated by UOP_RD, UOP_WR, UOP_ADD, UOP_OR, UOP_FADD, UOP_FMUL.
+
+module ozone_dispatch
+  import ozone_pkg::*;
+(
+    input  logic        clk,
+    input  logic        rst_n,
+    input  logic        flush,
+
+    // ─── decode handshake ─────────────────────────────────────────────────
+    input  uop_t        uop_in [2],
+    input  logic        uop_valid,
+    output logic        ready_for_uop,
+
+    // ─── regstate read (combinational, every cycle) ───────────────────────
+    output logic [4:0]  rst_src1_addr,
+    output logic [4:0]  rst_src2_addr,
+    output logic [4:0]  rst_fp_src1_addr,
+    output logic [4:0]  rst_fp_src2_addr,
+    input  reg_entry_t  rst_src1_status,
+    input  reg_entry_t  rst_src2_status,
+    input  reg_entry_t  rst_fp_src1_status,
+    input  reg_entry_t  rst_fp_src2_status,
+    input  reg_entry_t  rst_nzcv_status,
+
+    // ─── regstate write (mark dest busy, takes effect next posedge) ───────
+    output logic        rst_wr_en,
+    output logic [4:0]  rst_wr_addr,
+    output logic [5:0]  rst_rob_idx,
+    output logic        rst_fp_wr_en,
+    output logic [4:0]  rst_fp_wr_addr,
+    output logic [5:0]  rst_fp_rob_idx,
+    output logic        rst_nzcv_wr_en,
+    output logic [5:0]  rst_nzcv_rob_idx,
+
+    // ─── ROB source readiness (combinational with CDB forward inside ROB) ─
+    output logic [5:0]  rob_src1_idx,
+    output logic [5:0]  rob_src2_idx,
+    input  logic        rob_src1_ready,
+    input  logic [63:0] rob_src1_val,
+    input  logic        rob_src2_ready,
+    input  logic [63:0] rob_src2_val,
+
+    // ─── ROB alloc ────────────────────────────────────────────────────────
+    output logic        rob_alloc_valid,
+    output logic        rob_alloc_has_dest,
+    output rob_entry_t  rob_alloc_data,
+    input  logic [5:0]  rob_alloc_idx,   // = ROB tail, combinational
+    input  logic        rob_full,
+
+    // ─── Adder RS ─────────────────────────────────────────────────────────
+    output logic          adder_alloc_valid,
+    output rs_entry_add_t adder_alloc_entry,
+    input  logic          adder_full,
+
+    // ─── Logic RS ─────────────────────────────────────────────────────────
+    output logic          logic_alloc_valid,
+    output rs_entry_t     logic_alloc_entry,
+    input  logic          logic_full,
+
+    // ─── FPU RS ───────────────────────────────────────────────────────────
+    output logic            fpu_alloc_valid,
+    output rs_entry_fpmul_t fpu_alloc_entry,
+    input  logic            fpu_full,
+
+    // ─── AGU RS ───────────────────────────────────────────────────────────
+    output logic          agu_alloc_valid,
+    output rs_entry_add_t agu_alloc_entry,
+    input  logic          agu_full
+);
+
+// ─── FSM ───────────────────────────────────────────────────────────────────
+typedef enum logic { DS_IDLE = 1'b0, DS_DISP1 = 1'b1 } disp_state_e;
+disp_state_e state;
+uop_t        pending_uop1;
+
+// ─── current uop being dispatched ──────────────────────────────────────────
+uop_t cur;
+always_comb cur = (state == DS_DISP1) ? pending_uop1 : uop_in[0];
+
+// Slot 1 is valid when it holds something other than the cleared sentinel.
+// The decoder sets uop_out[1] = '0 (uop_type=UOP_AGU=0, a/b/c=32) for
+// single-uop instructions; it never places a real UOP_AGU in slot 1.
+logic has_uop1;
+assign has_uop1 = (uop_in[1].uop_type != 4'd0);
+
+// We are trying to dispatch this cycle when:
+//   • IDLE and decode has a valid uop, OR
+//   • DISP1 (always trying to drain pending_uop1)
+logic active;
+assign active = (state == DS_DISP1) || (state == DS_IDLE && uop_valid);
+
+// ─── regstate address outputs (always driven from cur) ────────────────────
+always_comb begin
+    rst_src1_addr    = cur.b[4:0];
+    rst_src2_addr    = cur.c[4:0];
+    rst_fp_src1_addr = cur.b[4:0];
+    rst_fp_src2_addr = cur.c[4:0];
+end
+
+// ─── source operand resolution: Vj/Qj (src1 = uop.b) ─────────────────────
+logic [63:0] Vj;
+logic [5:0]  Qj;
+reg_entry_t  src1_st;
+
+always_comb begin
+    // Immediate branches use the instruction PC as their first operand so the
+    // adder can form PC-relative targets.
+    if (cur.check_target && cur.imm_opnd) begin
+        src1_st      = '0;
+    end else if (cur.uop_type == UOP_COND_CHECK) begin
+        src1_st      = rst_nzcv_status;
+    end else begin
+        src1_st      = cur.fp_bit ? rst_fp_src1_status : rst_src1_status;
+    end
+    rob_src1_idx = src1_st.rob_idx;
+
+    if (cur.check_target && cur.imm_opnd) begin
+        Vj = {16'b0, cur.pc};
+        Qj = 6'b0;
+    end else if (cur.uop_type == UOP_COND_CHECK) begin
+        // NZCV source: value lives in low 4 bits of nzcv_reg.value
+        if (!src1_st.busy) begin
+            Vj = {60'b0, src1_st.value[3:0]};
+            Qj = 6'b0;
+        end else if (rob_src1_ready) begin
+            Vj = rob_src1_val;
+            Qj = 6'b0;
+        end else begin
+            Vj = 64'b0;
+            Qj = src1_st.rob_idx;
+        end
+    end else if (cur.b == 6'd32) begin
+        // XZR or no source — always zero, no dependency
+        Vj = 64'b0;
+        Qj = 6'b0;
+    end else if (!src1_st.busy) begin
+        Vj = src1_st.value;
+        Qj = 6'b0;
+    end else if (rob_src1_ready) begin
+        Vj = rob_src1_val;
+        Qj = 6'b0;
+    end else begin
+        Vj = 64'b0;
+        Qj = src1_st.rob_idx;
+    end
+end
+
+// ─── source operand resolution: Vk/Qk (src2 = uop.c or immediate) ─────────
+logic [63:0] Vk;
+logic [5:0]  Qk;
+reg_entry_t  src2_st;
+
+always_comb begin
+    src2_st      = cur.fp_bit ? rst_fp_src2_status : rst_src2_status;
+    rob_src2_idx = src2_st.rob_idx;
+
+    if (cur.imm_opnd) begin
+        // Second operand is an immediate baked into uop.imm_bits
+        Vk = cur.imm_bits;
+        Qk = 6'b0;
+    end else if (cur.c == 6'd32) begin
+        Vk = 64'b0;
+        Qk = 6'b0;
+    end else if (!src2_st.busy) begin
+        Vk = src2_st.value;
+        Qk = 6'b0;
+    end else if (rob_src2_ready) begin
+        Vk = rob_src2_val;
+        Qk = 6'b0;
+    end else begin
+        Vk = 64'b0;
+        Qk = src2_st.rob_idx;
+    end
+end
+
+// ─── FU routing ───────────────────────────────────────────────────────────
+logic goes_adder, goes_logic, goes_fpu, goes_agu;
+
+always_comb begin
+    goes_adder = (cur.uop_type == UOP_ADD)        ||
+                 (cur.uop_type == UOP_COND_CHECK)  ||
+                 (cur.uop_type == UOP_LSL)          ||
+                 (cur.uop_type == UOP_LSR)          ||
+                 (cur.uop_type == UOP_ASR);
+    goes_logic = (cur.uop_type == UOP_AND) ||
+                 (cur.uop_type == UOP_OR)  ||
+                 (cur.uop_type == UOP_XOR);
+    goes_fpu   = (cur.uop_type == UOP_FADD)      ||
+                 (cur.uop_type == UOP_FMUL)      ||
+                 (cur.uop_type == UOP_NAN_CHECK);
+    goes_agu   = (cur.uop_type == UOP_AGU) ||
+                 (cur.uop_type == UOP_RD)  ||
+                 (cur.uop_type == UOP_WR);
+    // UOP_ERET: no RS, just ROB (marked ready at alloc so it commits and
+    // triggers the flush path in the ROB commit logic)
+end
+
+logic target_full, stall, do_dispatch;
+assign target_full = (goes_adder && adder_full) ||
+                     (goes_logic && logic_full)  ||
+                     (goes_fpu   && fpu_full)    ||
+                     (goes_agu   && agu_full);
+assign stall       = rob_full || target_full;
+assign do_dispatch = active && !stall;
+
+// ─── op code translation ──────────────────────────────────────────────────
+adder_op_e adder_op;
+always_comb begin
+    unique case (cur.uop_type)
+        UOP_ADD: begin
+            if (cur.check_target)
+                adder_op = (cur.a == 6'd30) ? OP_BL : OP_B;
+            // a==32 means no writeback (CMP / CMN)
+            else if (cur.a == 6'd32 && cur.set_flags)
+                adder_op = cur.neg_c_or_imm ? OP_CMP : OP_CMN;
+            else if (cur.neg_c_or_imm)
+                adder_op = cur.set_flags ? OP_SUBS : OP_SUB;
+            else
+                adder_op = cur.set_flags ? OP_ADDS : OP_ADD;
+        end
+        UOP_COND_CHECK: adder_op = OP_BCOND;
+        // Shifter RS is a stub; shift uops fall back to the adder bus
+        // and will be handled when ozone_shifter is implemented.
+        UOP_LSL:        adder_op = OP_ADD;
+        UOP_LSR:        adder_op = OP_ADD;
+        UOP_ASR:        adder_op = OP_ADD;
+        default:        adder_op = OP_ADD;
+    endcase
+end
+
+adder_op_e logic_op;
+always_comb begin
+    unique case (cur.uop_type)
+        UOP_AND: logic_op = cur.set_flags ? OP_ANDS : OP_AND;
+        UOP_OR:  logic_op = cur.neg_c_or_imm ? OP_ORN : OP_ORR;
+        UOP_XOR: logic_op = OP_EOR;
+        default: logic_op = OP_ORR;
+    endcase
+end
+
+// ─── ROB alloc ────────────────────────────────────────────────────────────
+always_comb begin
+    rob_alloc_valid    = do_dispatch;
+    rob_alloc_has_dest = (cur.a != 6'd32);
+
+    rob_alloc_data             = '0;
+    rob_alloc_data.PC          = {16'b0, cur.pc};
+    rob_alloc_data.dest_reg    = cur.a[4:0];
+    rob_alloc_data.dest_type   = (cur.fp_bit && cur.a != 6'd32) ? DEST_FPR : DEST_GPR;
+    rob_alloc_data.alloc_has_dest = (cur.a != 6'd32);
+    rob_alloc_data.update_nzcv = cur.set_flags;
+    rob_alloc_data.inst_type   =
+        (cur.uop_type == UOP_RD)   ? ROB_TYPE_LOAD  :
+        (cur.uop_type == UOP_WR)   ? ROB_TYPE_STORE :
+        cur.check_target            ? ROB_TYPE_BRANCH :
+                                      ROB_TYPE_ALU;
+    // ERET has no FU to mark it done; mark ready immediately so the ROB can
+    // commit it and (eventually) trigger the flush path.
+    rob_alloc_data.ready = (cur.uop_type == UOP_ERET);
+end
+
+// ─── Adder RS entry ───────────────────────────────────────────────────────
+always_comb begin
+    adder_alloc_valid           = do_dispatch && goes_adder;
+    adder_alloc_entry           = '0;
+    adder_alloc_entry.valid     = 1'b1;
+    adder_alloc_entry.rob_tag   = rob_alloc_idx;
+    adder_alloc_entry.Vj        = Vj;
+    adder_alloc_entry.Vk        = Vk;
+    adder_alloc_entry.Qj        = Qj;
+    adder_alloc_entry.Qk        = Qk;
+    adder_alloc_entry.op        = 6'(adder_op);
+    adder_alloc_entry.has_rd    = (cur.a != 6'd32);
+    // B.cond: pass the condition code via branch_cond.
+    // NOTE: uop_t has no cond_code field yet — imm_bits[3:0] is used as
+    // a workaround until the decode is extended.
+    adder_alloc_entry.branch_cond = cond_code_e'(cur.imm_bits[3:0]);
+end
+
+// ─── Logic RS entry ───────────────────────────────────────────────────────
+always_comb begin
+    logic_alloc_valid              = do_dispatch && goes_logic;
+    logic_alloc_entry              = '0;
+    logic_alloc_entry.valid        = 1'b1;
+    logic_alloc_entry.rob_tag      = rob_alloc_idx;
+    logic_alloc_entry.Vj           = Vj;
+    logic_alloc_entry.Vk           = Vk;
+    logic_alloc_entry.Qj           = Qj;
+    logic_alloc_entry.Qk           = Qk;
+    logic_alloc_entry.op           = 6'(logic_op);
+    logic_alloc_entry.updates_nzcv = cur.set_flags;
+end
+
+// ─── FPU RS entry ─────────────────────────────────────────────────────────
+always_comb begin
+    fpu_alloc_valid           = do_dispatch && goes_fpu;
+    fpu_alloc_entry           = '0;
+    fpu_alloc_entry.valid     = 1'b1;
+    fpu_alloc_entry.rob_tag   = rob_alloc_idx;
+    fpu_alloc_entry.Vj        = Vj;
+    fpu_alloc_entry.Vk        = Vk;
+    fpu_alloc_entry.Qj        = Qj;
+    fpu_alloc_entry.Qk        = Qk;
+    fpu_alloc_entry.round_mode = 2'b00; // round-to-nearest-even default
+end
+
+// ─── AGU RS entry ─────────────────────────────────────────────────────────
+always_comb begin
+    agu_alloc_valid           = do_dispatch && goes_agu;
+    agu_alloc_entry           = '0;
+    agu_alloc_entry.valid     = 1'b1;
+    agu_alloc_entry.rob_tag   = rob_alloc_idx;
+    agu_alloc_entry.Vj        = Vj;
+    agu_alloc_entry.Vk        = Vk;
+    agu_alloc_entry.Qj        = Qj;
+    agu_alloc_entry.Qk        = Qk;
+    agu_alloc_entry.has_rd    = (cur.a != 6'd32);
+    agu_alloc_entry.op        = (cur.uop_type == UOP_WR) ? 6'(OP_SUB) : 6'(OP_ADD);
+end
+
+// ─── regstate writes ─────────────────────────────────────────────────────
+always_comb begin
+    // GPR: mark dest busy (skip XZR=32 and SP=31 which regstate guards too)
+    rst_wr_en    = do_dispatch && !cur.fp_bit &&
+                   (cur.a != 6'd32) && (cur.a != 6'd31);
+    rst_wr_addr  = cur.a[4:0];
+    rst_rob_idx  = rob_alloc_idx;
+
+    // FPR: mark dest busy
+    rst_fp_wr_en    = do_dispatch && cur.fp_bit && (cur.a != 6'd32);
+    rst_fp_wr_addr  = cur.a[4:0];
+    rst_fp_rob_idx  = rob_alloc_idx;
+
+    // NZCV: mark busy when this instruction writes flags
+    rst_nzcv_wr_en   = do_dispatch && cur.set_flags;
+    rst_nzcv_rob_idx = rob_alloc_idx;
+end
+
+// ─── ready_for_uop ────────────────────────────────────────────────────────
+// Asserted on the cycle the LAST uop is successfully dispatched so decode
+// can release its hold and reset to state 0 on the next posedge.
+always_comb begin
+    ready_for_uop = 1'b0;
+    if (state == DS_IDLE && uop_valid && !stall && !has_uop1)
+        ready_for_uop = 1'b1;   // single-uop instruction, done this cycle
+    else if (state == DS_DISP1 && !stall)
+        ready_for_uop = 1'b1;   // second uop dispatched, done
+end
+
+// ─── FSM ──────────────────────────────────────────────────────────────────
+always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n || flush) begin
+        state        <= DS_IDLE;
+        pending_uop1 <= '0;
+    end else begin
+        case (state)
+            DS_IDLE: begin
+                if (uop_valid && !stall && has_uop1) begin
+                    // UOP0 dispatched this cycle; latch UOP1 for next cycle.
+                    pending_uop1 <= uop_in[1];
+                    state        <= DS_DISP1;
+                end
+            end
+            DS_DISP1: begin
+                if (!stall) begin
+                    state <= DS_IDLE;
+                end
+                // While stalled, pending_uop1 stays stable.
+            end
+            default: state <= DS_IDLE;
+        endcase
+    end
+end
+
 endmodule

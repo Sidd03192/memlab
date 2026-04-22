@@ -147,12 +147,19 @@ module ozone_rob
         exception_valid     = 1'b0;
         exception_pc        = '0;
         exception_code      = '0;
+
+        if (head_can_commit && head_entry.inst_type == ROB_TYPE_BRANCH) begin
+            if (head_entry.br_taken && head_entry.br_target != 64'b0) begin
+                flush           = 1'b1;
+                flush_target_pc = head_entry.br_target;
+            end
+        end
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            head  <= '0;
-            tail  <= '0;
+            head  <= 6'd1; // tag 0 is reserved as "no dependency" sentinel
+            tail  <= 6'd1; // tag 0 is reserved as "no dependency" sentinel (Qj==0 means ready)
             count <= '0;
             for (int i = 0; i < ROB_DEPTH; i++) begin
                 rob_entries[i] <= '0;
@@ -161,7 +168,7 @@ module ozone_rob
             // Commit oldest ready head entry first.
             // (dispatch will still be able to read this entry because its comb )
             if (head_can_commit) begin
-                head <= head + 1'b1;
+                head <= (head == 6'd63) ? 6'd1 : head + 1'b1;
             end
 
             // cdb writeback update (after commit, before alloc)
@@ -185,7 +192,7 @@ module ozone_rob
                 rob_entries[tail] <= alloc_data;
                 rob_entries[tail].valid <= 1'b1;
                 rob_entries[tail].alloc_has_dest <= alloc_has_dest;
-                tail <= tail + 1'b1;  
+                tail <= (tail == 6'd63) ? 6'd1 : tail + 1'b1; // wrap to 1, never 0 (tag 0 reserved)
             end
 
             if (head_can_commit && !do_alloc) begin

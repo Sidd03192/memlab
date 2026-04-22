@@ -3,6 +3,7 @@
 
 
 module ozone_decode
+  import ozone_pkg::*;
 (
     input logic clk,
     input logic rst,
@@ -224,7 +225,7 @@ module ozone_decode
                     endcase
 
                     // Print decoded fields for simulation/debug.
-                    if (!comb_ins_valid) begin
+                    if (!comb_ins_valid && insn_bits != 32'b0) begin
                         $display("[DECODE] 0x%08X -> INVALID (format=0x%X)",
                                  insn_bits, comb_ins_format);
                     end else begin
@@ -427,7 +428,7 @@ module ozone_decode
 
                         4'd7: begin  // B3: BR / BLR / RET
                             // packet.opcode[0] == insn_bits[21]: BLR sets a=x30.
-                            uop_out[0].uop_type     <= UOP_OR;
+                            uop_out[0].uop_type     <= UOP_ADD;
                             uop_out[0].a            <= packet.opcode[0] ? 6'd30 : 6'd32;
                             uop_out[0].b            <= packet.reg_n;
                             uop_out[0].c            <= 6'd32;

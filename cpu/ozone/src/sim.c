@@ -3,10 +3,10 @@
 #include <string.h>
 #include <inttypes.h>
 #include <capstone/capstone.h>
-#include <elf.h>
 #include <math.h>
 #include "sim.h"
 #include "log.h"
+#include "portable_elf.h"
 
 // Flags: N (31), Z (30), C (29), V (28)
 #define FLAG_N (1U << 31)
