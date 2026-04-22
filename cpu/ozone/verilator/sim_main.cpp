@@ -12,6 +12,9 @@
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     VTop* top = new VTop;
+    top->clk = 0;
+    top->reset = 1;
+    top->eval();
 
     // 1. Setup Shared Memory
     shm_unlink("/ozone_dram");
@@ -31,19 +34,35 @@ int main(int argc, char** argv) {
     std::cout << "[Verilator] Shared memory initialized. Waiting for reset..." << std::endl;
 
     bool last_reset = false;
+    bool host_has_asserted_reset = false;
+    bool run_complete = false;
 
     while (!Verilated::gotFinish()) {
+        uint32_t host_reset = *(volatile uint32_t*)(csr_shm + 0x0);
+
+        if (run_complete) {
+            if (host_reset) {
+                run_complete = false;
+            } else {
+                usleep(1000);
+                continue;
+            }
+        }
+
         // Toggle clock
         top->clk = 0; top->eval();
         top->clk = 1;
 
         // Sync Reset from SHM (Offset 0x0)
-        top->reset = *(volatile uint32_t*)(csr_shm + 0x0);
+        if (host_reset) {
+            host_has_asserted_reset = true;
+        }
+        top->reset = host_has_asserted_reset ? host_reset : 1;
         
-        if (top->reset && !last_reset) {
+        if (host_reset && !last_reset) {
             std::cout << "[Verilator] Reset asserted by Host." << std::endl;
         }
-        last_reset = top->reset;
+        last_reset = host_reset;
 
         // Handle Memory Read
         if (top->mem_en) {
@@ -65,9 +84,7 @@ int main(int argc, char** argv) {
 
         if (top->done) {
             std::cout << "[Verilator] Execution complete. X0=" << std::hex << top->x_regs[0] << std::endl;
-            // Wait for reset to be cleared before allowing another run
-            while (*(volatile uint32_t*)(csr_shm + 0x0)) { usleep(1000); }
-            top->done = 0; // Reset for next potential run
+            run_complete = true;
         }
 
         usleep(100); // Slow down simulation for visibility

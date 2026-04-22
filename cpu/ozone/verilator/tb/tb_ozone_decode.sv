@@ -16,7 +16,8 @@
 //   S-format  (8) : NOP, ERET, MRS, MSR, SVC, ADRP
 //   INVALID (0xF) : FP arithmetic (FMOV/FNEG/FADD/FMUL/FSUB/FCMP) — no format defined yet
 
-module tb_ozone_decode;
+module tb_ozone_decode
+  import ozone_pkg::*; ();
 
     logic        clk;
     logic        rst;

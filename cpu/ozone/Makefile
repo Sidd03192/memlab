@@ -14,7 +14,7 @@ EL1_BINS=$(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/el1_%.elf, $(BASE_TEST_
 
 # STUDENTS: change the below based on what your ARM compiler's prefixes are. It
 # may have no prefix.
-CROSS_COMPILE=aarch64-linux-gnu-
+CROSS_COMPILE=aarch64-elf-
 GCC=$(CROSS_COMPILE)gcc
 
 .PHONY: all clean tests verify

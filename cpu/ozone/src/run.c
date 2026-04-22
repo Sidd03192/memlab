@@ -5,10 +5,10 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <elf.h>
 #include <inttypes.h>
 #include "run.h"
 #include "log.h"
+#include "portable_elf.h"
 
 // DE10-Nano standard addresses
 #define HPS2FPGA_AXI_BASE 0xC0000000ULL

@@ -16,7 +16,8 @@
 //   RR shift_type=3 (ROR) no default → stale uop type
 
 /* verilator lint_off UNUSEDSIGNAL */
-module tb_ozone_decode_cases;
+module tb_ozone_decode_cases
+  import ozone_pkg::*; ();
 
     logic        clk;
     logic        rst;

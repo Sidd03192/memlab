@@ -159,7 +159,7 @@ int main(int argc, char* argv[]) {
     }
     fprintf(f, "ENTRY(start)\n");
     fprintf(f, "SECTIONS {\n");
-    fprintf(f, "  . = 0x%lx;\n", config.reset_vector);
+    fprintf(f, "  . = 0x%" PRIx64 ";\n", config.reset_vector);
     fprintf(f, "  .text.boot : { *(.text.boot) }\n");
     fprintf(f, "  .exception_vectors : { \n");
     fprintf(f, "    . = ALIGN(2048);\n");
@@ -169,17 +169,17 @@ int main(int argc, char* argv[]) {
     fprintf(f, "  .config_data : { \n");
     fprintf(f, "    . = ALIGN(8);\n");
     fprintf(f, "    _CONFIG_START = .;\n");
-    fprintf(f, "    QUAD(0x%lx); /* _SP_EL0 */\n", config.sp_el0);
-    fprintf(f, "    QUAD(0x%lx); /* _SP_EL1 */\n", config.sp_el1);
-    fprintf(f, "    QUAD(0x%lx); /* _VBAR_EL1 */\n", config.vbar_el1);
-    fprintf(f, "    QUAD(0x%lx); /* _SPSR_EL1 */\n", config.spsr_el1);
-    fprintf(f, "    QUAD(0x%lx); /* _ELR_EL1 */\n", config.elr_el1);
-    fprintf(f, "    QUAD(0x%lx); /* _TTBR0_EL1 */\n", config.ttbr0);
-    fprintf(f, "    QUAD(0x%lx); /* _TERMINATE_VAL */\n", config.terminate_val);
-    fprintf(f, "    QUAD(0x%lx); /* _NUM_STACK_PAGES */\n", config.num_stack_pages);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _SP_EL0 */\n", config.sp_el0);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _SP_EL1 */\n", config.sp_el1);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _VBAR_EL1 */\n", config.vbar_el1);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _SPSR_EL1 */\n", config.spsr_el1);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _ELR_EL1 */\n", config.elr_el1);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _TTBR0_EL1 */\n", config.ttbr0);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _TERMINATE_VAL */\n", config.terminate_val);
+    fprintf(f, "    QUAD(0x%" PRIx64 "); /* _NUM_STACK_PAGES */\n", config.num_stack_pages);
     fprintf(f, "  }\n");
 
-    fprintf(f, "  . = 0x%lx;\n", config.entry);
+    fprintf(f, "  . = 0x%" PRIx64 ";\n", config.entry);
     fprintf(f, "  .text : { *(.text) }\n");
     fprintf(f, "  .data : { *(.data) }\n");
     fprintf(f, "  .bss : { *(.bss) }\n");
