@@ -2,6 +2,9 @@
 // ROB/RS/LSQ metadata types, exception codes, and common constants.
 package ozone_pkg;
 
+// FPU Import
+import fpnew_pkg::*;
+
 // -------------------------------------------------------
 // Global Parameters
 // -------------------------------------------------------
@@ -117,14 +120,20 @@ typedef struct packed {
 } rs_entry_add_t;
 
 typedef struct packed {
-  logic              valid;
-  logic [ROB_IDX_WIDTH-1:0] rob_tag;
-  logic [63:0]       Vj;          // operand X (FP word in low P+Q bits)
-  logic [63:0]       Vk;          // operand Y (FP word in low P+Q bits)
-  logic [ROB_IDX_WIDTH-1:0] Qj;   // producer tag for Vj (0 = ready)
-  logic [ROB_IDX_WIDTH-1:0] Qk;   // producer tag for Vk (0 = ready)
-  logic [1:0]        round_mode;  // rounding specifier
-} rs_entry_fpmul_t;
+    logic [63:0]                Vj;
+    logic [63:0]                Vk;
+    logic [ROB_IDX_WIDTH-1:0]   Qj;
+    logic [ROB_IDX_WIDTH-1:0]   Qk;
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
+    logic                       valid;
+    fpnew_pkg::operation_e      op;
+    logic                       op_mod;
+    fpnew_pkg::fp_format_e      src_fmt;
+    fpnew_pkg::fp_format_e      dst_fmt;
+    fpnew_pkg::int_format_e     int_fmt;
+    fpnew_pkg::roundmode_e      rnd_mode;
+    logic                       vectorial_op;
+} rs_entry_fp_t;
 
 typedef struct packed {
     logic                       valid;        // result ready to broadcast
@@ -136,6 +145,9 @@ typedef struct packed {
     // flags (for ALU ops like ADDS, SUBS, CMP)
     logic                       update_nzcv;
     logic [3:0]                 nzcv;
+
+    // FPU flags
+    fpnew_pkg::status_t         fp_status;    // {NV, DZ, OF, UF, NX}
     
     // branch resolution (adder)
     logic                       br_valid;     // this is a branch result
