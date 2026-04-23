@@ -219,7 +219,9 @@ always_comb begin
     unique case (cur.uop_type)
         UOP_ADD: begin
             if (cur.check_target)
-                adder_op = (cur.a == 6'd30) ? OP_BL : OP_B;
+                // imm_opnd distinguishes BL (imm offset) from BLR (register target)
+                adder_op = (cur.a == 6'd30 && !cur.imm_opnd) ? OP_BLR :
+                           (cur.a == 6'd30)                   ? OP_BL  : OP_B;
             // a==32 means no writeback (CMP / CMN)
             else if (cur.a == 6'd32 && cur.set_flags)
                 adder_op = cur.neg_c_or_imm ? OP_CMP : OP_CMN;
@@ -276,10 +278,12 @@ always_comb begin
     adder_alloc_entry.valid     = 1'b1;
     adder_alloc_entry.rob_tag   = rob_alloc_idx;
     adder_alloc_entry.Vj        = Vj;
-    adder_alloc_entry.Vk        = Vk;
+    // BLR: Vj=reg_n (branch target), Vk carries PC+4 (return address).
+    // c=XZR so Vk/Qk were both 0; safe to override.
+    adder_alloc_entry.Vk        = (adder_op == OP_BLR) ? ({16'b0, cur.pc} + 64'd4) : Vk;
     adder_alloc_entry.Qj        = Qj;
-    adder_alloc_entry.Qk        = Qk;
-    adder_alloc_entry.op        = 6'(adder_op);
+    adder_alloc_entry.Qk        = (adder_op == OP_BLR) ? 6'b0 : Qk;
+    adder_alloc_entry.op        = adder_op;
     adder_alloc_entry.has_rd    = (cur.a != 6'd32);
     // B.cond: pass the condition code via branch_cond.
     // NOTE: uop_t has no cond_code field yet — imm_bits[3:0] is used as
@@ -325,7 +329,7 @@ always_comb begin
     agu_alloc_entry.Qj        = Qj;
     agu_alloc_entry.Qk        = Qk;
     agu_alloc_entry.has_rd    = (cur.a != 6'd32);
-    agu_alloc_entry.op        = (cur.uop_type == UOP_WR) ? 6'(OP_SUB) : 6'(OP_ADD);
+    agu_alloc_entry.op        = (cur.uop_type == UOP_WR) ? OP_SUB : OP_ADD;
 end
 
 // ─── regstate writes ─────────────────────────────────────────────────────

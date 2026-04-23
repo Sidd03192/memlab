@@ -110,13 +110,13 @@ typedef struct packed {
     logic [ROB_IDX_WIDTH-1:0]   Qk;       // ROB tag for source 2 (0 = ready)
     logic [ROB_IDX_WIDTH-1:0]   rob_tag; // which ROB entry gets the result
     logic                       valid;
-    logic [OPCODE_W-1:0]        op; // FU can do multiple micro-ops
-    logic [3:0]                 nzcv;      // NZCV flags for this instruction 
-    cond_code_e                 branch_cond; // condition code for B.cond
-    logic                      branch_target; // computed target
-    logic                      branch_taken;  // computed taken/not taken (true value)
-    logic                      pred_taken;    // branch predictor's taken/not-taken decision
-    logic                      has_rd;        // use for AGU, marks if op writes back to register file
+    adder_op_e                  op;
+    logic [3:0]                 nzcv;
+    cond_code_e                 branch_cond;
+    logic                      branch_target;
+    logic                      branch_taken;
+    logic                      pred_taken;
+    logic                      has_rd;
 } rs_entry_add_t;
 
 typedef struct packed {

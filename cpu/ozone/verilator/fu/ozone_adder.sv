@@ -119,7 +119,8 @@ module ozone_rs_adder
     add_br_taken    = 1'b0;
     add_br_target   = '0;
 
-    case (issue_entry.op)
+    /* verilator lint_off CASEINCOMPLETE */
+    case (issue_entry.op)  /* synthesis full_case */
       OP_ADD: begin
         add_result = issue_entry.Vj + issue_entry.Vk;
       end
@@ -183,12 +184,24 @@ module ozone_rs_adder
         add_br_target = issue_entry.Vj + issue_entry.Vk;
       end
 
-      // branch and link (Vj = PC, Vk = branch offset)
-      OP_BL: begin // no result. TODO: branches no result remember
-        add_value_valid = 1'b0;
-        add_br_valid  = 1'b1;
-        add_br_taken  = 1'b1;
-        add_br_target = issue_entry.Vj + issue_entry.Vk;
+      // branch and link immediate (Vj = PC, Vk = branch offset)
+      // result = PC+4 written to x30; branch target = PC+offset
+      OP_BL: begin
+        add_result      = issue_entry.Vj + 64'd4;
+        add_value_valid = 1'b1;
+        add_br_valid    = 1'b1;
+        add_br_taken    = 1'b1;
+        add_br_target   = issue_entry.Vj + issue_entry.Vk;
+      end
+
+      // branch and link register (Vj = reg_n, Vk = PC+4 from dispatch)
+      // result = PC+4 written to x30; branch target = reg_n
+      OP_BLR: begin
+        add_result      = issue_entry.Vk;
+        add_value_valid = 1'b1;
+        add_br_valid    = 1'b1;
+        add_br_taken    = 1'b1;
+        add_br_target   = issue_entry.Vj;
       end
 
       OP_BCOND: begin
@@ -224,6 +237,7 @@ module ozone_rs_adder
       end
 
     endcase
+    /* verilator lint_on CASEINCOMPLETE */
   end
 
   // -------------------------------------------------------
