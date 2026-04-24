@@ -196,6 +196,8 @@ module memory_subsystem #(
     // L1 echoes back the lq_id it was given at issue time alongside read data.
     // =========================================================================
     logic                      l1_lsq_resp_valid;
+    logic                      l1_lsq_resp_nack;
+    logic                      l1_lsq_resp_ready;
     logic [ROB_IDX_WIDTH-1:0]  l1_lsq_resp_lq_id;
     logic [DATA_WIDTH-1:0]     l1_lsq_resp_data;
 
@@ -251,6 +253,8 @@ module memory_subsystem #(
         .mem_resp_lq_id    (l1_lsq_resp_lq_id),
         .mem_resp_data     (l1_lsq_resp_data),
         .mem_resp_valid    (l1_lsq_resp_valid),
+        .mem_resp_nack     (l1_lsq_resp_nack),
+        .mem_resp_ready    (l1_lsq_resp_ready),
 
         // Handshake: LSQ dequeues only when issue buffer is empty
         .l1_ready          (lsq_issue_slot_ready),
@@ -290,14 +294,41 @@ module memory_subsystem #(
     end
 
     // =========================================================================
+    // IDENTITY TLB DELAY REGISTERS
+    // With USE_IDENTITY_TLB=1, tlb_valid and l1_start_from_lsq are both driven
+    // by launch_issue_now, causing them to fire simultaneously.  The L1 state
+    // machine handles start_index in state 0 (→ state 1) and start_tag only in
+    // state 1.  After the transition, l1_busy_to_lsq=1 prevents launch_issue_now
+    // from re-asserting, so start_tag is always 0 in state 1 — deadlock.
+    // Fix: register the TLB valid one cycle, so start_tag fires in state 1.
+    // The physical address is also latched in the same cycle as launch_issue_now
+    // so it is correct when the delayed start_tag fires.
+    // =========================================================================
+    logic                tlb_valid_d;
+    logic [PA_WIDTH-1:0] tlb_paddr_d;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            tlb_valid_d <= 1'b0;
+            tlb_paddr_d <= '0;
+        end else begin
+            tlb_valid_d <= launch_issue_now;
+            if (launch_issue_now)
+                tlb_paddr_d <= issue_buf_vaddr[PA_WIDTH-1:0];
+        end
+    end
+
+    // =========================================================================
     // TLB INSTANTIATION
     // =========================================================================
     generate
         if (USE_IDENTITY_TLB) begin : gen_tlb_bypass
-            // Identity mapping: VA[PA_WIDTH-1:0] == PA, always hits, 0-cycle latency.
+            // Identity mapping: VA[PA_WIDTH-1:0] == PA.
+            // tlb_valid is delayed by 1 cycle relative to l1_start_from_lsq so
+            // the L1 can move from state 0 to state 1 before start_tag asserts.
             assign tlb_ready        = 1'b1;
-            assign tlb_valid        = tlb_start;
-            assign tlb_result_paddr = tlb_vaddr_mux[PA_WIDTH-1:0];
+            assign tlb_valid        = tlb_valid_d;
+            assign tlb_result_paddr = tlb_paddr_d;
         end else begin : gen_tlb_real
             tlb u_tlb (
                 .clk         (clk),
@@ -337,8 +368,10 @@ module memory_subsystem #(
 
         // To LSQ — load data return
         .lsq_resp_valid   (l1_lsq_resp_valid),
+        .lsq_resp_nack    (l1_lsq_resp_nack),
         .lsq_resp_lq_id   (l1_lsq_resp_lq_id),
         .lsq_resp_data    (l1_lsq_resp_data),
+        .lsq_resp_ready   (l1_lsq_resp_ready),
 
         // To LSQ — stall
         .l1_stall_out_to_lsq (l1_busy_to_lsq),

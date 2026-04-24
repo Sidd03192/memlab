@@ -53,8 +53,8 @@ module ozone_regstate
   input  logic [ROB_IDX_WIDTH-1:0]  commit_nzcv_rob_idx
 );
 
-  // actual regiters 
-  reg_entry_t gp_reg [0:30];
+  // actual regiters (0-30 = X0-X30, 31 = SP)
+  reg_entry_t gp_reg [0:31];
   reg_entry_t fp_reg [0:31];
   reg_entry_t nzcv_reg;
 
@@ -86,6 +86,10 @@ module ozone_regstate
         gp_reg[i].busy    <= 1'b0;
         gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
       end
+      // SP_EL0 initial value from ozone-config.json
+      gp_reg[31].value   <= 64'h000000000040f000;
+      gp_reg[31].busy    <= 1'b0;
+      gp_reg[31].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
       for (int i = 0; i < 32; i++) begin
         fp_reg[i].value   <= 64'b0;
         fp_reg[i].busy    <= 1'b0;
@@ -100,7 +104,7 @@ module ozone_regstate
       // value is correct even if a speculative dispatch overwrote rob_idx.
       // Only use the rob_idx guard for clearing the busy bit: if a newer
       // writer (different rob_idx) is still in flight, leave busy asserted.
-      if (commit_en && commit_addr != 5'd31) begin
+      if (commit_en) begin
         gp_reg[commit_addr].value <= commit_value;
         if (gp_reg[commit_addr].rob_idx == commit_rob_idx)
           gp_reg[commit_addr].busy <= 1'b0;
@@ -119,7 +123,7 @@ module ozone_regstate
       if (!flush) begin
         // dispatch write — only when not flushing so speculative renames
         // don't pollute the rename table after a redirect
-        if (disp_wr_en && disp_wr_addr != 5'd31) begin
+        if (disp_wr_en) begin
           gp_reg[disp_wr_addr].busy    <= 1'b1;
           gp_reg[disp_wr_addr].rob_idx <= disp_rob_idx;
         end
@@ -134,7 +138,7 @@ module ozone_regstate
       end else begin
         // Flush: kill speculative rename state; committed values already
         // written above in the commit block.
-        for (int i = 0; i < 31; i++) begin
+        for (int i = 0; i < 32; i++) begin
           gp_reg[i].busy    <= 1'b0;
           gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
         end

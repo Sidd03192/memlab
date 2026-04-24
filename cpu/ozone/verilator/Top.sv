@@ -456,6 +456,7 @@ module Top
 
             if (commit_reg_en && commit_reg_addr != 5'd31) begin
                 x_regs[commit_reg_addr] <= commit_reg_value;
+                if (commit_reg_addr == 30) $display("[SIM] x30 updated to 0x%016x by mod", commit_reg_value);
             end
 
             if (commit_fp_en) begin

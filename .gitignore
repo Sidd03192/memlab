@@ -3,3 +3,12 @@ memory_subsystem.sv
 docs
 *.vcd
 .DS_Store
+patch_lsq
+patch_lsq.cpp
+cpu/ozone/ozone.dSYM/Contents/Resources/DWARF/ozone
+.gitignore
+cpu/ozone/verilator/patch_top
+.gitignore
+cpu/ozone/verilator/patch_top.cpp
+cpu/ozone/verilator/out.txt
+cpu/ozone/ozone.dSYM/Contents/Resources/DWARF/ozone

@@ -197,8 +197,15 @@ module ozone_decode
                             // RI-format
                             packet.opcode <= {2'b0, insn_bits[31:23]};
                             packet.imm    <= {52'b0, insn_bits[21:10]};
-                            packet.reg_n  <= insn_bits[9:5] == '1 ? 6'(32) : {1'b0, insn_bits[9:5]};
-                            packet.reg_d  <= insn_bits[4:0] == '1 ? 6'(32) : {1'b0, insn_bits[4:0]};
+                            // For add/sub immediate (bits[28:24]=10001), Rn/Rd=31 → SP (6'd31).
+                            // For bitfield (UBFM/SBFM), Rn/Rd=31 → XZR (6'd32).
+                            if (insn_bits[28:24] == 5'b10001) begin
+                                packet.reg_n <= insn_bits[9:5] == '1 ? 6'd31 : {1'b0, insn_bits[9:5]};
+                                packet.reg_d <= insn_bits[4:0] == '1 ? 6'd31 : {1'b0, insn_bits[4:0]};
+                            end else begin
+                                packet.reg_n <= insn_bits[9:5] == '1 ? 6'(32) : {1'b0, insn_bits[9:5]};
+                                packet.reg_d <= insn_bits[4:0] == '1 ? 6'(32) : {1'b0, insn_bits[4:0]};
+                            end
                         end
                         5: begin
                             // B1-format
@@ -492,11 +499,14 @@ module ozone_decode
                                     uop_out[0].a <= 6'd32;
                                     uop_out[0].b <= packet.reg_d;
                                 end
-                            end else begin  // ADRP / SVC / NOP
+                            end else begin  // ADRP / SVC
                                 uop_out[0].uop_type <= UOP_ADD;
                                 uop_out[0].a        <= packet.reg_d;
                                 uop_out[0].imm_opnd <= 1'b1;
-                                uop_out[0].imm_bits <= packet.imm;
+                                // ADRP: result = (PC & ~0xFFF) + sign_ext(imm21)<<12
+                                uop_out[0].imm_bits <= (insn_bits[28:24] == 5'b10000) ?
+                                    (({16'b0, insn_pc} & ~64'hFFF) + packet.imm) :
+                                    packet.imm;
                             end
                         end
 

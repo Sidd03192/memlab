@@ -1,1 +1,9 @@
 obj_dir/
+testcases/bin
+linker.ld
+ozone
+patch
+patch.cpp
+run_sim.sh
+test_print
+test_print.cpp

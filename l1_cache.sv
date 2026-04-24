@@ -29,8 +29,10 @@ module l1_cache #(
     // TO LSQ — load data return
     // Driven for one cycle when a load completes (hit or MSHR install).
     output logic                        lsq_resp_valid,
+    output logic                        lsq_resp_nack,
     output logic [ROB_IDX_WIDTH-1:0]    lsq_resp_lq_id,
     output logic [DATA_WIDTH-1:0]       lsq_resp_data,
+    input  logic                        lsq_resp_ready,
 
     // TO LSQ — back-pressure
     output logic                        l1_stall_out_to_lsq,
@@ -91,6 +93,7 @@ module l1_cache #(
     // lq_id for the load that caused each miss — needed to send the response
     // back to the LSQ when the MSHR finally installs.
     logic [ROB_IDX_WIDTH-1:0] mshr_lq_id      [NUM_MSHRS];
+    logic [WORD_BITS-1:0]     mshr_word_offset[NUM_MSHRS];
     logic                     mshr_is_load     [NUM_MSHRS]; // 0 = store miss, no LSQ response
 
     logic                         mshr_full;
@@ -188,6 +191,7 @@ module l1_cache #(
             curr_word_offset <= '0;
             curr_lq_id       <= '0;
             lsq_resp_valid   <= 1'b0;
+            lsq_resp_nack    <= 1'b0;
             lsq_resp_lq_id   <= '0;
             lsq_resp_data    <= '0;
             for (int i = 0; i < L1_SETS; i++) begin
@@ -203,6 +207,7 @@ module l1_cache #(
                 mshr_store_mask[i] <= '0;
                 mshr_store_data[i] <= '0;
                 mshr_lq_id[i]      <= '0;
+                mshr_word_offset[i]<= '0;
                 mshr_is_load[i]    <= 1'b0;
             end
             wb_head  <= '0;
@@ -215,10 +220,13 @@ module l1_cache #(
 
         end else begin
 
-            // Default: de-assert response for one cycle pulse
-            lsq_resp_valid <= 1'b0;
-            lsq_resp_lq_id <= '0;
-            lsq_resp_data  <= '0;
+            // Clear response signals ONLY if they were accepted last cycle
+            if (!lsq_resp_valid || lsq_resp_ready) begin
+                lsq_resp_valid <= 1'b0;
+                lsq_resp_nack  <= 1'b0;
+                lsq_resp_lq_id <= '0;
+                lsq_resp_data  <= '0;
+            end
 
             wb_pop        = l2_wb_ack && !wb_empty;
             wb_push       = 1'b0;
@@ -277,28 +285,33 @@ module l1_cache #(
                                     // The read word is extracted from the merged block.
                                     if (mshr_is_load[i]) begin
                                         lsq_resp_valid <= 1'b1;
+                                        lsq_resp_nack  <= 1'b0;
                                         lsq_resp_lq_id <= mshr_lq_id[i];
                                         lsq_resp_data  <=
-                                            temp_install[curr_word_offset*DATA_WIDTH +: DATA_WIDTH];
+                                            temp_install[mshr_word_offset[i]*DATA_WIDTH +: DATA_WIDTH];
                                     end
                                 end
 
-                                tags[mshr_index[i]][evict_way_l]       <= mshr_paddr[i][PA_WIDTH-1 -: TAG_SIZE];
-                                set_valids[mshr_index[i]][evict_way_l] <= 1'b1;
-                                set_dirty[mshr_index[i]][evict_way_l]  <= (mshr_store_mask[i] != '0);
-                                lru[mshr_index[i]]                     <= ~evict_way_l;
-                                mshr_state[i]                          <= MS_IDLE;
-                                mshr_store_mask[i]                     <= '0;
-                                mshr_store_data[i]                     <= '0;
-                                mshr_lq_id[i]                          <= '0;
-                                mshr_is_load[i]                        <= 1'b0;
-                                mshr_install_done                       = 1'b1;
+                                // Only complete install if response can be accepted
+                                if (!mshr_is_load[i] || lsq_resp_ready || (!lsq_resp_valid)) begin
+                                    tags[mshr_index[i]][evict_way_l]       <= mshr_paddr[i][PA_WIDTH-1 -: TAG_SIZE];
+                                    set_valids[mshr_index[i]][evict_way_l] <= 1'b1;
+                                    set_dirty[mshr_index[i]][evict_way_l]  <= (mshr_store_mask[i] != '0);
+                                    lru[mshr_index[i]]                     <= ~evict_way_l;
+                                    mshr_state[i]                          <= MS_IDLE;
+                                    mshr_store_mask[i]                     <= '0;
+                                    mshr_store_data[i]                     <= '0;
+                                    mshr_lq_id[i]                          <= '0;
+                                    mshr_word_offset[i]                    <= '0;
+                                    mshr_is_load[i]                        <= 1'b0;
+                                    mshr_install_done                       = 1'b1;
+                                end
                             end
                         end
                     end
 
                     // --- ACCEPT NEW REQUEST FROM LSQ ---
-                    if (start_index) begin
+                    if (start_index && (!lsq_resp_valid || lsq_resp_ready)) begin
                         curr_index       <= trace_vaddr[OFFSET_BITS +: INDEX_BITS];
                         curr_word_offset <= trace_vaddr[OFFSET_BITS-1 -: WORD_BITS];
                         curr_is_write    <= is_write;
@@ -318,16 +331,22 @@ module l1_cache #(
                                 set_contents[curr_index][hit_way]
                                     [curr_word_offset*DATA_WIDTH +: DATA_WIDTH] <= curr_wdata;
                                 set_dirty[curr_index][hit_way] <= 1'b1;
+                                lru[curr_index] <= ~hit_way[0];
+                                state <= 3'd0;
                             end else begin
                                 // --- LSQ RESPONSE: load hit ---
-                                lsq_resp_valid <= 1'b1;
-                                lsq_resp_lq_id <= curr_lq_id;
-                                lsq_resp_data  <=
-                                    set_contents[curr_index][hit_way]
-                                        [curr_word_offset*DATA_WIDTH +: DATA_WIDTH];
+                                // Wait until lsq is ready to accept
+                                if (!lsq_resp_valid || lsq_resp_ready) begin
+                                    lsq_resp_valid <= 1'b1;
+                                    lsq_resp_nack  <= 1'b0;
+                                    lsq_resp_lq_id <= curr_lq_id;
+                                    lsq_resp_data  <=
+                                        set_contents[curr_index][hit_way]
+                                            [curr_word_offset*DATA_WIDTH +: DATA_WIDTH];
+                                    lru[curr_index] <= ~hit_way[0];
+                                    state <= 3'd0;
+                                end
                             end
-                            lru[curr_index] <= ~hit_way[0];
-                            state <= 3'd0;
 
                         end else begin
                             // MISS — allocate MSHR
@@ -349,13 +368,24 @@ module l1_cache #(
                                 end
                                 // For a duplicate load miss the lq_id of the
                                 // first miss wins — the second load will be
-                                // re-issued once the first broadcasts on CDB.
+                                // NACKed and re-issued by the LSQ.
+                                if (!curr_is_write) begin
+                                    if (!lsq_resp_valid || lsq_resp_ready) begin
+                                        lsq_resp_valid <= 1'b1;
+                                        lsq_resp_nack  <= 1'b1;
+                                        lsq_resp_lq_id <= curr_lq_id;
+                                        state <= 3'd0;
+                                    end
+                                end else begin
+                                    state <= 3'd0;
+                                end
                             end else if (!mshr_full) begin
                                 // Fresh MSHR allocation
                                 mshr_paddr[mshr_free_idx]    <= incoming_line_paddr;
                                 mshr_index[mshr_free_idx]    <= curr_index;
                                 mshr_state[mshr_free_idx]    <= MS_UNRESOLVED;
                                 mshr_lq_id[mshr_free_idx]    <= curr_lq_id;
+                                mshr_word_offset[mshr_free_idx] <= curr_word_offset;
                                 mshr_is_load[mshr_free_idx]  <= !curr_is_write;
                                 if (curr_is_write) begin
                                     mshr_store_data[mshr_free_idx]

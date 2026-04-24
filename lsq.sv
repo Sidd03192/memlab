@@ -79,6 +79,8 @@ module lsq #(
     input  logic [ROB_IDX_WIDTH-1:0]  mem_resp_lq_id,      // which LQ entry is returning
     input  logic [DATA_WIDTH-1:0]     mem_resp_data,        // returned load data
     input  logic                      mem_resp_valid,       // data is valid this cycle
+    input  logic                      mem_resp_nack,        // load nack
+    output logic                      mem_resp_ready,       // lsq ready to accept response
 
     // Handshake for L1 and TLB accepting the issued request
     input  logic                      l1_ready,
@@ -99,6 +101,8 @@ module lsq #(
     // =========================================================================
     localparam int LQ_PTR_WIDTH = $clog2(LQ_ENTRIES);
     localparam int SQ_PTR_WIDTH = $clog2(SQ_ENTRIES);
+
+    assign mem_resp_ready = !cdb_out.valid;
 
     // =========================================================================
     // LOAD QUEUE STATE
@@ -465,18 +469,21 @@ module lsq #(
                 // Gated on !cdb_out.valid for the same reason as load issue.
                 // The cache must hold mem_resp_valid high until accepted.
                 // -------------------------------------------------------------
-                if (mem_resp_valid && !cdb_out.valid) begin
+                if ((mem_resp_valid || mem_resp_nack) && !cdb_out.valid) begin
                     for (int i = 0; i < LQ_ENTRIES; i++) begin
                         if (lq_state[i] == LQ_IN_FLIGHT
                             && lq_rob_id[i] == mem_resp_lq_id) begin
 
-                            lq_state[i] <= LQ_EMPTY;
+                            if (mem_resp_nack) begin
+                                lq_state[i] <= LQ_WAITING_ISSUE;
+                            end else begin
+                                lq_state[i] <= LQ_EMPTY;
 
-                            cdb_out.valid        <= 1'b1;
-                            cdb_out.rob_tag      <= lq_rob_id[i];
-                            cdb_out.cdb_value_en <= 1'b1;
-                            cdb_out.rob_wb_en    <= 1'b1;
-                            cdb_out.value        <= mem_resp_data;
+                                cdb_out.valid        <= 1'b1;
+                                cdb_out.rob_tag      <= lq_rob_id[i];
+                                cdb_out.cdb_value_en <= 1'b1;
+                                cdb_out.rob_wb_en    <= 1'b1;
+                                cdb_out.value        <= mem_resp_data;
                             cdb_out.update_nzcv <= 1'b0;
                             cdb_out.nzcv        <= '0;
                             cdb_out.br_valid    <= 1'b0;
@@ -487,6 +494,7 @@ module lsq #(
 
                             if (i[LQ_PTR_WIDTH-1:0] == lq_head)
                                 lq_head <= lq_head + 1'b1;
+                            end
                         end
                     end
                 end

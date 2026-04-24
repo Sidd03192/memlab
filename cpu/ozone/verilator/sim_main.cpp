@@ -135,6 +135,11 @@ int main(int argc, char** argv) {
                     memcpy(dmem_resp_data, &dram_shm[paddr], CACHE_LINE_BYTES);
                 else
                     memset(dmem_resp_data, 0, CACHE_LINE_BYTES);
+                
+                printf("\n[SIM] DRAM data = ");
+                for(int j=0; j<64; j++) printf("%02x ", dmem_resp_data[j]);
+                printf("\n"); fflush(stdout);
+                
                 dmem_resp_paddr_r = (uint32_t)paddr;
                 dmem_resp_pending = true;
             }

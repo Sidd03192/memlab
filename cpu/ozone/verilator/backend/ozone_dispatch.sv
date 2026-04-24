@@ -429,9 +429,9 @@ end
 
 // ─── regstate writes ─────────────────────────────────────────────────────
 always_comb begin
-    // GPR: mark dest busy (skip XZR=32, SP=31, and stores which write no reg)
+    // GPR: mark dest busy (skip XZR=32 and stores which write no reg)
     rst_wr_en    = do_dispatch && !cur.fp_bit &&
-                   (cur.a != 6'd32) && (cur.a != 6'd31) &&
+                   (cur.a != 6'd32) &&
                    (cur.uop_type != UOP_WR);
     rst_wr_addr  = cur.a[4:0];
     rst_rob_idx  = rob_alloc_idx;
