@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <iostream>
 #include <cstring>
+#include <cstdio>
+#include <set>
 
 #define DRAM_SPAN 0x40000000ULL // 1GB
 #define CSR_SPAN  0x00200000ULL // 2MB
@@ -13,6 +15,22 @@
 // Cache line size must match BLOCK_SIZE parameter in memory_subsystem (64 bytes)
 #define CACHE_LINE_BYTES 64
 #define CACHE_LINE_WORDS (CACHE_LINE_BYTES / 4)  // 16 x 32-bit words
+
+// Print one GPR entry: "X0 : 0x..." or "X10: 0x..."
+static void print_gpr(int idx, uint64_t val) {
+    if (idx < 10)
+        printf("X%-2d: 0x%016llx", idx, (unsigned long long)val);
+    else
+        printf("X%d: 0x%016llx", idx, (unsigned long long)val);
+}
+
+// Print one FPR entry
+static void print_fpr(int idx, uint64_t val) {
+    if (idx < 10)
+        printf("V%-2d: 0x%016llx", idx, (unsigned long long)val);
+    else
+        printf("V%d: 0x%016llx", idx, (unsigned long long)val);
+}
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
@@ -47,12 +65,16 @@ int main(int argc, char** argv) {
     uint32_t dmem_resp_paddr_r  = 0;
     uint8_t  dmem_resp_data[CACHE_LINE_BYTES] = {};
 
+    // Track which 8-byte-aligned DRAM addresses were written back from L2
+    std::set<uint64_t> written_addrs;
+
     while (!Verilated::gotFinish()) {
         uint32_t host_reset = *(volatile uint32_t*)(csr_shm + 0x0);
 
         if (run_complete) {
             if (host_reset) {
                 run_complete = false;
+                written_addrs.clear();
             } else {
                 usleep(1000);
                 continue;
@@ -103,6 +125,9 @@ int main(int argc, char** argv) {
                 if (paddr + CACHE_LINE_BYTES <= DRAM_SPAN) {
                     for (int i = 0; i < CACHE_LINE_WORDS; i++)
                         *(uint32_t*)(&dram_shm[paddr + i * 4]) = top->dmem_req_wdata[i];
+                    // Record every 8-byte word in this line as modified
+                    for (int i = 0; i < CACHE_LINE_BYTES; i += 8)
+                        written_addrs.insert(paddr + i);
                 }
             } else {
                 // Queue read response for next cycle
@@ -130,16 +155,44 @@ int main(int argc, char** argv) {
         }
 
         if (top->done) {
-            std::cout << "\n[Verilator] Execution complete. Register state:\n";
-            std::cout << "=== General Purpose Registers (X0-X30) ===\n";
-            for (int i = 0; i < 31; i++) {
-                std::cout << "  X" << std::dec << i << "\t= 0x" << std::hex << top->x_regs[i] << std::endl;
+            printf("\n========== Final Architectural State ==========\n");
+            printf("PC:     0x0000000000000000\n");
+
+            printf("\nGeneral Purpose Registers:\n");
+            for (int i = 0; i < 31; i += 2) {
+                print_gpr(i, top->x_regs[i]);
+                if (i + 1 < 31) {
+                    printf("    ");
+                    print_gpr(i + 1, top->x_regs[i + 1]);
+                }
+                printf("\n");
             }
-            std::cout << "\n=== Floating Point Registers (D0-D31) ===\n";
-            for (int i = 0; i < 32; i++) {
-                std::cout << "  D" << std::dec << i << "\t= 0x" << std::hex << top->fp_regs[i] << std::endl;
+            // X30 is index 30 in x_regs (0..30)
+            print_gpr(30, top->x_regs[30]);
+            printf("\n");
+
+            printf("\nFloating Point Registers (64-bit):\n");
+            for (int i = 0; i < 32; i += 2) {
+                print_fpr(i, top->fp_regs[i]);
+                if (i + 1 < 32) {
+                    printf("    ");
+                    print_fpr(i + 1, top->fp_regs[i + 1]);
+                }
+                printf("\n");
             }
-            std::cout << std::endl;
+
+            // Modified memory: only L2 writebacks reach dram_shm.
+            // Stores still resident in L1/L2 at program end will NOT appear here.
+            printf("\nModified Memory (L2 writebacks only):\n");
+            for (uint64_t addr : written_addrs) {
+                uint64_t val = *(uint64_t*)(&dram_shm[addr]);
+                if (val != 0)
+                    printf("0x%016llx: 0x%016llx\n",
+                           (unsigned long long)addr,
+                           (unsigned long long)val);
+            }
+            printf("================================================\n\n");
+
             run_complete = true;
         }
 
