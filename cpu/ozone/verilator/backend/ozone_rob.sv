@@ -72,6 +72,7 @@ module ozone_rob
     rob_entry_t              head_entry;
     logic                    head_can_commit;
     logic                    do_alloc;
+    logic                    branch_flush_commit;
 
     // Full/empty detection
     assign rob_full = (count == ROB_DEPTH);
@@ -81,18 +82,30 @@ module ozone_rob
     always_comb begin
         // Default: read from ROB entry
         src1_ready = rob_entries[src1_rob_idx].ready;
-        src1_value = rob_entries[src1_rob_idx].value;
+        src1_value = rob_entries[src1_rob_idx].update_nzcv ?
+                     {60'b0, rob_entries[src1_rob_idx].nzcv} :
+                     rob_entries[src1_rob_idx].value;
         src2_ready = rob_entries[src2_rob_idx].ready;
-        src2_value = rob_entries[src2_rob_idx].value;
+        src2_value = rob_entries[src2_rob_idx].update_nzcv ?
+                     {60'b0, rob_entries[src2_rob_idx].nzcv} :
+                     rob_entries[src2_rob_idx].value;
 
         // if CDB broadcast matches what we are reading from... forward.
-        if (cdb_in.valid && cdb_in.cdb_value_en &&
+        if (cdb_in.valid && cdb_in.update_nzcv &&
             cdb_in.rob_tag == src1_rob_idx) begin
+            src1_ready = 1'b1;
+            src1_value = {60'b0, cdb_in.nzcv};
+        end else if (cdb_in.valid && cdb_in.cdb_value_en &&
+                     cdb_in.rob_tag == src1_rob_idx) begin
             src1_ready = 1'b1;
             src1_value = cdb_in.value;
         end
-        if (cdb_in.valid && cdb_in.cdb_value_en &&
+        if (cdb_in.valid && cdb_in.update_nzcv &&
             cdb_in.rob_tag == src2_rob_idx) begin
+            src2_ready = 1'b1;
+            src2_value = {60'b0, cdb_in.nzcv};
+        end else if (cdb_in.valid && cdb_in.cdb_value_en &&
+                     cdb_in.rob_tag == src2_rob_idx) begin
             src2_ready = 1'b1;
             src2_value = cdb_in.value;
         end
@@ -108,6 +121,7 @@ module ozone_rob
 
         head_can_commit     = (count != '0) && head_entry.valid && head_entry.ready;
         do_alloc            = alloc_valid && ((count != ROB_DEPTH) || head_can_commit);
+        branch_flush_commit = 1'b0;
 
         commit_valid        = head_can_commit;
         commit_data         = head_entry;
@@ -152,6 +166,7 @@ module ozone_rob
             if (head_entry.br_taken && head_entry.br_target != 64'b0) begin
                 flush           = 1'b1;
                 flush_target_pc = head_entry.br_target;
+                branch_flush_commit = 1'b1;
             end
         end
     end
@@ -165,6 +180,14 @@ module ozone_rob
                 rob_entries[i] <= '0;
             end
         end else begin
+            if (branch_flush_commit) begin
+                head  <= (head == 6'd63) ? 6'd1 : head + 1'b1;
+                tail  <= (head == 6'd63) ? 6'd1 : head + 1'b1;
+                count <= '0;
+                for (int i = 0; i < ROB_DEPTH; i++) begin
+                    rob_entries[i] <= '0;
+                end
+            end else begin
             // Commit oldest ready head entry first.
             // (dispatch will still be able to read this entry because its comb )
             if (head_can_commit) begin
@@ -199,6 +222,7 @@ module ozone_rob
                 count <= count - 1'b1;
             end else if (!head_can_commit && do_alloc) begin
                 count <= count + 1'b1;
+            end
             end
 
         end

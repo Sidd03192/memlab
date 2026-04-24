@@ -200,7 +200,7 @@ module ozone_decode
                         6: begin
                             // B2-format
                             packet.opcode    <= {3'b0, insn_bits[31:24]};
-                            packet.imm       <= {{45{insn_bits[23]}}, insn_bits[23:5]};
+                            packet.imm       <= {{43{insn_bits[23]}}, insn_bits[23:5], 2'b0};
                             packet.cond_code <= insn_bits[3:0];
                         end
                         7: begin
@@ -346,6 +346,28 @@ module ozone_decode
                                     4'hA: uop_out[0].uop_type <= UOP_ASR;
                                     default: uop_out[0].uop_type <= UOP_LSL;
                                 endcase
+                            end else if (packet.shift_type == 2'b00 && packet.imm[5:0] == 6'd0) begin
+                                uop_out[0].a <= packet.reg_d;
+                                uop_out[0].b <= packet.reg_n;
+                                uop_out[0].c <= packet.reg_m;
+
+                                if (packet.opcode[0]) begin  // arithmetic shifted-register with no shift
+                                    uop_out[0].uop_type     <= UOP_ADD;
+                                    uop_out[0].set_flags    <= packet.opcode[5];
+                                    uop_out[0].neg_c_or_imm <= packet.opcode[6];
+                                end else begin              // logical shifted-register with no shift
+                                    case (packet.opcode[6:5])
+                                        2'b01: begin
+                                            uop_out[0].uop_type <= UOP_OR;
+                                            uop_out[0].neg_c_or_imm <= insn_bits[21];
+                                        end
+                                        2'b10: uop_out[0].uop_type <= UOP_XOR;
+                                        2'b11: begin
+                                            uop_out[0].uop_type  <= UOP_AND;
+                                            uop_out[0].set_flags <= 1'b1;
+                                        end
+                                    endcase
+                                end
                             end else begin
                                 uop_out[0].a         <= 6'd32;
                                 uop_out[0].b         <= packet.reg_m;
@@ -422,7 +444,8 @@ module ozone_decode
                         4'd6: begin  // B2: B.cond
                             uop_out[0].uop_type <= UOP_COND_CHECK;
                             uop_out[0].imm_opnd <= 1'b1;
-                            uop_out[0].imm_bits <= {{32{packet.imm[31]}}, packet.imm};
+                            uop_out[0].imm_bits <= packet.imm;
+                            uop_out[0].c <= {2'b0, packet.cond_code};
                             uop_out[0].check_target <= 1;
                         end
 

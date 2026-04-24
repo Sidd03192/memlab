@@ -337,7 +337,7 @@ module ozone_rs_adder
         // connect result wires
         result.valid       <= 1'b1;
         result.rob_tag     <= issue_entry.rob_tag;
-        result.cdb_value_en<= 1'b1;
+        result.cdb_value_en<= add_value_valid;
         result.rob_wb_en   <= 1'b1;
         result.value       <= add_result;
         result.update_nzcv <= add_flags_valid;

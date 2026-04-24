@@ -115,19 +115,16 @@ reg_entry_t  src1_st;
 always_comb begin
     // Immediate branches use the instruction PC as their first operand so the
     // adder can form PC-relative targets.
-    if (cur.check_target && cur.imm_opnd) begin
-        src1_st      = '0;
-    end else if (cur.uop_type == UOP_COND_CHECK) begin
+    if (cur.uop_type == UOP_COND_CHECK) begin
         src1_st      = rst_nzcv_status;
+    end else if (cur.check_target && cur.imm_opnd) begin
+        src1_st      = '0;
     end else begin
         src1_st      = cur.fp_bit ? rst_fp_src1_status : rst_src1_status;
     end
     rob_src1_idx = src1_st.rob_idx;
 
-    if (cur.check_target && cur.imm_opnd) begin
-        Vj = {16'b0, cur.pc};
-        Qj = 6'b0;
-    end else if (cur.uop_type == UOP_COND_CHECK) begin
+    if (cur.uop_type == UOP_COND_CHECK) begin
         // NZCV source: value lives in low 4 bits of nzcv_reg.value
         if (!src1_st.busy) begin
             Vj = {60'b0, src1_st.value[3:0]};
@@ -139,6 +136,9 @@ always_comb begin
             Vj = 64'b0;
             Qj = src1_st.rob_idx;
         end
+    end else if (cur.check_target && cur.imm_opnd) begin
+        Vj = {16'b0, cur.pc};
+        Qj = 6'b0;
     end else if (cur.b == 6'd32) begin
         // XZR or no source — always zero, no dependency
         Vj = 64'b0;
@@ -278,7 +278,7 @@ always_comb begin
     adder_alloc_entry           = '0;
     adder_alloc_entry.valid     = 1'b1;
     adder_alloc_entry.rob_tag   = rob_alloc_idx;
-    adder_alloc_entry.Vj        = Vj;
+    adder_alloc_entry.Vj        = (adder_op == OP_BCOND) ? {16'b0, cur.pc} : Vj;
     // BLR: Vj=reg_n (branch target), Vk carries PC+4 (return address).
     // c=XZR so Vk/Qk were both 0; safe to override.
     adder_alloc_entry.Vk        = (adder_op == OP_BLR) ? ({16'b0, cur.pc} + 64'd4) : Vk;
@@ -289,7 +289,10 @@ always_comb begin
     // B.cond: pass the condition code via branch_cond.
     // NOTE: uop_t has no cond_code field yet — imm_bits[3:0] is used as
     // a workaround until the decode is extended.
-    adder_alloc_entry.branch_cond = cond_code_e'(cur.imm_bits[3:0]);
+    adder_alloc_entry.branch_cond = (adder_op == OP_BCOND) ?
+                                    cond_code_e'(cur.c[3:0]) :
+                                    cond_code_e'(cur.imm_bits[3:0]);
+    adder_alloc_entry.nzcv        = (adder_op == OP_BCOND) ? Vj[3:0] : 4'b0;
 end
 
 // ─── Logic RS entry ───────────────────────────────────────────────────────
