@@ -94,53 +94,56 @@ module ozone_regstate
       nzcv_reg.value   <= 64'b0;
       nzcv_reg.busy    <= 1'b0;
       nzcv_reg.rob_idx <= {ROB_IDX_WIDTH{1'b0}};
-    end else if (flush) begin
-      // Flush only kills speculative rename state; committed architectural
-      // values must remain intact.
-      for (int i = 0; i < 31; i++) begin
-        gp_reg[i].busy    <= 1'b0;
-        gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
-      end
-      for (int i = 0; i < 32; i++) begin
-        fp_reg[i].busy    <= 1'b0;
-        fp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
-      end
-      nzcv_reg.busy    <= 1'b0;
-      nzcv_reg.rob_idx <= {ROB_IDX_WIDTH{1'b0}};
     end else begin
       // --- Commit updates and clears the retiring RST entry ---
+      // Always write the committed value unconditionally so the architectural
+      // value is correct even if a speculative dispatch overwrote rob_idx.
+      // Only use the rob_idx guard for clearing the busy bit: if a newer
+      // writer (different rob_idx) is still in flight, leave busy asserted.
       if (commit_en && commit_addr != 5'd31) begin
-        // only clear if rob entry is same
-        if (gp_reg[commit_addr].rob_idx == commit_rob_idx) begin
-          gp_reg[commit_addr].value <= commit_value;
+        gp_reg[commit_addr].value <= commit_value;
+        if (gp_reg[commit_addr].rob_idx == commit_rob_idx)
           gp_reg[commit_addr].busy <= 1'b0;
-        end
       end
       if (commit_fp_en) begin
-        if (fp_reg[commit_fp_addr].rob_idx == commit_fp_rob_idx) begin
-          fp_reg[commit_fp_addr].value <= commit_fp_value;
+        fp_reg[commit_fp_addr].value <= commit_fp_value;
+        if (fp_reg[commit_fp_addr].rob_idx == commit_fp_rob_idx)
           fp_reg[commit_fp_addr].busy <= 1'b0;
-        end
       end
       if (commit_nzcv_en) begin
-        if (nzcv_reg.rob_idx == commit_nzcv_rob_idx) begin
-          nzcv_reg.value <= {60'b0, commit_nzcv_value};
+        nzcv_reg.value <= {60'b0, commit_nzcv_value};
+        if (nzcv_reg.rob_idx == commit_nzcv_rob_idx)
           nzcv_reg.busy <= 1'b0;
-        end
       end
 
-      // dispatch write
-      if (disp_wr_en && disp_wr_addr != 5'd31) begin
-        gp_reg[disp_wr_addr].busy    <= 1'b1;
-        gp_reg[disp_wr_addr].rob_idx <= disp_rob_idx;
-      end
-      if (disp_fp_wr_en) begin
-        fp_reg[disp_fp_wr_addr].busy    <= 1'b1;
-        fp_reg[disp_fp_wr_addr].rob_idx <= disp_fp_rob_idx;
-      end
-      if (disp_nzcv_wr_en) begin
-        nzcv_reg.busy    <= 1'b1;
-        nzcv_reg.rob_idx <= disp_nzcv_rob_idx;
+      if (!flush) begin
+        // dispatch write — only when not flushing so speculative renames
+        // don't pollute the rename table after a redirect
+        if (disp_wr_en && disp_wr_addr != 5'd31) begin
+          gp_reg[disp_wr_addr].busy    <= 1'b1;
+          gp_reg[disp_wr_addr].rob_idx <= disp_rob_idx;
+        end
+        if (disp_fp_wr_en) begin
+          fp_reg[disp_fp_wr_addr].busy    <= 1'b1;
+          fp_reg[disp_fp_wr_addr].rob_idx <= disp_fp_rob_idx;
+        end
+        if (disp_nzcv_wr_en) begin
+          nzcv_reg.busy    <= 1'b1;
+          nzcv_reg.rob_idx <= disp_nzcv_rob_idx;
+        end
+      end else begin
+        // Flush: kill speculative rename state; committed values already
+        // written above in the commit block.
+        for (int i = 0; i < 31; i++) begin
+          gp_reg[i].busy    <= 1'b0;
+          gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
+        end
+        for (int i = 0; i < 32; i++) begin
+          fp_reg[i].busy    <= 1'b0;
+          fp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
+        end
+        nzcv_reg.busy    <= 1'b0;
+        nzcv_reg.rob_idx <= {ROB_IDX_WIDTH{1'b0}};
       end
     end
   end

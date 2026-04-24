@@ -93,25 +93,37 @@ module ozone_rs_adder
   logic add_carry, add_overflow;
   logic sub_carry, sub_overflow;
 
+  // Pre-shifted second operand for shifted-register ALU instructions.
+  // shift_amt==0 with shift_type==LSL is an identity so this is always safe.
+  logic [63:0] vk_shifted;
+
   always_comb begin
-    // Compute extended results for carry detection
+    // Pre-shift Vk according to the embedded shift descriptor.
+    case (issue_entry.shift_type)
+      2'b00: vk_shifted = issue_entry.Vk << issue_entry.shift_amt;
+      2'b01: vk_shifted = issue_entry.Vk >> issue_entry.shift_amt;
+      2'b10: vk_shifted = $unsigned($signed(issue_entry.Vk) >>> issue_entry.shift_amt);
+      default: vk_shifted = issue_entry.Vk;
+    endcase
+
+    // Compute extended results for carry detection using the shifted operand.
     // ADD: C = carry out of bit 63
-    add_result_ext = {1'b0, issue_entry.Vj} + {1'b0, issue_entry.Vk};
+    add_result_ext = {1'b0, issue_entry.Vj} + {1'b0, vk_shifted};
     add_carry      = add_result_ext[64];
     // ADD overflow: sign(Vj) == sign(Vk) && sign(result) != sign(Vj)
-    add_overflow   = (issue_entry.Vj[63] == issue_entry.Vk[63]) &&
+    add_overflow   = (issue_entry.Vj[63] == vk_shifted[63]) &&
                      (add_result_ext[63] != issue_entry.Vj[63]);
 
     // SUB: C = NOT borrow = (Vj >= Vk) unsigned
     // Implemented as Vj + (~Vk) + 1, carry out means no borrow
-    sub_result_ext = {1'b0, issue_entry.Vj} + {1'b0, ~issue_entry.Vk} + 65'd1;
+    sub_result_ext = {1'b0, issue_entry.Vj} + {1'b0, ~vk_shifted} + 65'd1;
     sub_carry      = sub_result_ext[64];
     // SUB overflow: sign(Vj) != sign(Vk) && sign(result) != sign(Vj)
-    sub_overflow   = (issue_entry.Vj[63] != issue_entry.Vk[63]) &&
+    sub_overflow   = (issue_entry.Vj[63] != vk_shifted[63]) &&
                      (sub_result_ext[63] != issue_entry.Vj[63]);
 
     // Default outputs
-    add_result      = issue_entry.Vj + issue_entry.Vk;
+    add_result      = issue_entry.Vj + vk_shifted;
     add_value_valid = 1'b1;
     add_flags_valid = 1'b0;
     add_nzcv        = 4'b0;
@@ -122,7 +134,7 @@ module ozone_rs_adder
     /* verilator lint_off CASEINCOMPLETE */
     case (issue_entry.op)  /* synthesis full_case */
       OP_ADD: begin
-        add_result = issue_entry.Vj + issue_entry.Vk;
+        add_result = issue_entry.Vj + vk_shifted;
       end
 
       // add and set nzcv
@@ -136,7 +148,7 @@ module ozone_rs_adder
       end
 
       OP_SUB: begin
-        add_result = issue_entry.Vj - issue_entry.Vk;
+        add_result = issue_entry.Vj - vk_shifted;
       end
 
       OP_SUBS: begin
@@ -173,7 +185,7 @@ module ozone_rs_adder
       // ADRP ADD portion: Vj = (PC & ~0xFFF), Vk = (imm << 12)
       // The AND is done by the logic unit; we just add here
       OP_ADRP_ADD: begin
-        add_result = issue_entry.Vj + issue_entry.Vk;
+        add_result = issue_entry.Vj + vk_shifted;
       end
 
       // unconditional branch (Vj = branch PC, Vk = branch offset)
@@ -230,6 +242,34 @@ module ozone_rs_adder
           default: add_br_taken = 1'b0;
         endcase
         add_br_target = issue_entry.Vj + issue_entry.Vk; // target = PC + offset
+      end
+
+      OP_LSL: begin
+        add_result = issue_entry.Vj << issue_entry.Vk[5:0];
+      end
+
+      OP_LSR: begin
+        add_result = issue_entry.Vj >> issue_entry.Vk[5:0];
+      end
+
+      OP_ASR: begin
+        add_result = $unsigned($signed(issue_entry.Vj) >>> issue_entry.Vk[5:0]);
+      end
+
+      // CBZ: branch if Vj == 0; CBNZ: branch if Vj != 0
+      // Vk holds the pre-computed absolute branch target.
+      OP_CBZ: begin
+        add_value_valid = 1'b0;
+        add_br_valid    = 1'b1;
+        add_br_taken    = (issue_entry.Vj == 64'b0);
+        add_br_target   = issue_entry.Vk;
+      end
+
+      OP_CBNZ: begin
+        add_value_valid = 1'b0;
+        add_br_valid    = 1'b1;
+        add_br_taken    = (issue_entry.Vj != 64'b0);
+        add_br_target   = issue_entry.Vk;
       end
 
       default: begin

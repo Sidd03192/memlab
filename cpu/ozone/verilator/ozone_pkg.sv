@@ -87,36 +87,41 @@ typedef struct packed {
 } reg_entry_t;
 
 
-// Reservation station entry 
+// Reservation station entry (logic FU)
 typedef struct packed {
-    logic                       value;     // computed value (when ready)
-    logic [63:0]                Vj;       // value of source 1 (when ready)
-    logic [63:0]                Vk;       // value of source 2 (when ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qj;       // ROB tag for source 1 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qk;       // ROB tag for source 2 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   rob_tag; // which ROB entry gets the result
+    logic                       value;
+    logic [63:0]                Vj;
+    logic [63:0]                Vk;
+    logic [ROB_IDX_WIDTH-1:0]   Qj;
+    logic [ROB_IDX_WIDTH-1:0]   Qk;
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
     logic                       valid;
-    logic [OPCODE_W-1:0]        op; // FU can do multiple micro-ops
-    logic [3:0]                 nzcv;      // NZCV flags for this instruction 
-    logic                       updates_nzcv; // does this instruction update NZCV?
+    logic [OPCODE_W-1:0]        op;
+    logic [3:0]                 nzcv;
+    logic                       updates_nzcv;
+    logic [5:0]                 shift_amt;   // pre-shift Vk amount (0 = identity)
+    logic [1:0]                 shift_type;  // 00=LSL, 01=LSR, 10=ASR
 } rs_entry_t;
 
 
+// Reservation station entry (adder FU)
 typedef struct packed {
-    logic [63:0]                value;     // computed value (when ready)
-    logic [63:0]                Vj;       // value of source 1 (when ready)
-    logic [63:0]                Vk;       // value of source 2 (when ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qj;       // ROB tag for source 1 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qk;       // ROB tag for source 2 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   rob_tag; // which ROB entry gets the result
+    logic [63:0]                value;
+    logic [63:0]                Vj;
+    logic [63:0]                Vk;
+    logic [ROB_IDX_WIDTH-1:0]   Qj;
+    logic [ROB_IDX_WIDTH-1:0]   Qk;
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
     logic                       valid;
     adder_op_e                  op;
     logic [3:0]                 nzcv;
     cond_code_e                 branch_cond;
-    logic                      branch_target;
-    logic                      branch_taken;
-    logic                      pred_taken;
-    logic                      has_rd;
+    logic                       branch_target;
+    logic                       branch_taken;
+    logic                       pred_taken;
+    logic                       has_rd;
+    logic [5:0]                 shift_amt;   // pre-shift Vk amount (0 = identity)
+    logic [1:0]                 shift_type;  // 00=LSL, 01=LSR, 10=ASR
 } rs_entry_add_t;
 
 typedef struct packed {
@@ -220,6 +225,8 @@ typedef struct packed {
     logic fp_bit;
     logic set_flags;
     logic check_target;
+    logic [5:0] shift_amt;   // RR-format shifted-register: amount to pre-shift Vk
+    logic [1:0] shift_type;  // 00=LSL, 01=LSR, 10=ASR
 } uop_t;
 
 endpackage

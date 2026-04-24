@@ -4,8 +4,8 @@ module fpnew_top
   import ozone_pkg::*;
 #(
   parameter fpnew_pkg::fpu_features_t       Features       = fpnew_pkg::RV64D_Xsflt,
-  parameter fpnew_pkg::fpu_implementation_t Implementation = fpnew_pkg::DEFAULT_NOREGS,
-  parameter fpnew_pkg::divsqrt_unit_t       DivSqrtSel     = fpnew_pkg::THMULTI,
+  parameter fpnew_pkg::fpu_implementation_t Implementation = fpnew_pkg::DEFAULT_SNITCH,
+  parameter fpnew_pkg::divsqrt_unit_t       DivSqrtSel     = fpnew_pkg::PULP,
   parameter int unsigned                    TrueSIMDClass  = 0,
   parameter int unsigned                    EnableSIMDMask = 0,
   parameter int unsigned                    DEPTH          = 4,
