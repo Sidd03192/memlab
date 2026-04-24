@@ -1,6 +1,7 @@
 VERILATOR = verilator
 V_FLAGS = -Wall -Wno-fatal --cc --exe --build -j --top-module Top
 FILES = types.sv \
+	fu/fpu/fpnew_pkg.sv \
 	ozone_pkg.sv \
 	Top.sv \
 	frontend/ozone_itlb.sv \
@@ -16,7 +17,7 @@ FILES = types.sv \
 
 all: obj_dir/VTop
 
-obj_dir/VTop: Top.sv sim_main.cpp
+obj_dir/VTop: $(FILES) sim_main.cpp
 	$(VERILATOR) $(V_FLAGS) $(FILES) sim_main.cpp -o VTop
 
 decode_tb: obj_dir/Vdecode_tb

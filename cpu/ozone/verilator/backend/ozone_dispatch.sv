@@ -258,7 +258,8 @@ always_comb begin
     rob_alloc_data             = '0;
     rob_alloc_data.PC          = {16'b0, cur.pc};
     rob_alloc_data.dest_reg    = cur.a[4:0];
-    rob_alloc_data.dest_type   = (cur.fp_bit && cur.a != 6'd32) ? DEST_FPR : DEST_GPR;
+    rob_alloc_data.dest_type   = (cur.a == 6'd32) ? DEST_NONE :
+                                  (cur.fp_bit)     ? DEST_FPR  : DEST_GPR;
     rob_alloc_data.alloc_has_dest = (cur.a != 6'd32);
     rob_alloc_data.update_nzcv = cur.set_flags;
     rob_alloc_data.inst_type   =

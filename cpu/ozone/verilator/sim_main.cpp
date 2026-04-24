@@ -82,8 +82,22 @@ int main(int argc, char** argv) {
             *(volatile uint64_t*)(csr_shm + 0x100 + (i * 8)) = top->x_regs[i];
         }
 
+        // FP Registers (Offset 0x200)
+        for (int i = 0; i < 32; i++) {
+            *(volatile uint64_t*)(csr_shm + 0x200 + (i * 8)) = top->fp_regs[i];
+        }
+
         if (top->done) {
-            std::cout << "[Verilator] Execution complete. X0=" << std::hex << top->x_regs[0] << std::endl;
+            std::cout << "\n[Verilator] Execution complete. Register state:\n";
+            std::cout << "=== General Purpose Registers (X0-X30) ===\n";
+            for (int i = 0; i < 31; i++) {
+                std::cout << "  X" << std::dec << i << "\t= 0x" << std::hex << top->x_regs[i] << std::endl;
+            }
+            std::cout << "\n=== Floating Point Registers (D0-D31) ===\n";
+            for (int i = 0; i < 32; i++) {
+                std::cout << "  D" << std::dec << i << "\t= 0x" << std::hex << top->fp_regs[i] << std::endl;
+            }
+            std::cout << std::endl;
             run_complete = true;
         }
 

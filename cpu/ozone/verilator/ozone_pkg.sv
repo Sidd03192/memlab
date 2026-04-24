@@ -136,6 +136,16 @@ typedef struct packed {
 } rs_entry_fp_t;
 
 typedef struct packed {
+    logic [63:0]                Vj;          // operand X (FP word in low P+Q bits)
+    logic [63:0]                Vk;          // operand Y (FP word in low P+Q bits)
+    logic [ROB_IDX_WIDTH-1:0]   Qj;          // producer tag for Vj (0 = ready)
+    logic [ROB_IDX_WIDTH-1:0]   Qk;          // producer tag for Vk (0 = ready)
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
+    logic                       valid;
+    logic [1:0]                 round_mode;  // rounding specifier
+} rs_entry_fpmul_t;
+
+typedef struct packed {
     logic                       valid;        // result ready to broadcast
     logic [ROB_IDX_WIDTH-1:0]   rob_tag;      // which ROB entry completed
     logic                       cdb_value_en; // this CDB payload is a normal value wakeup

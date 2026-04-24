@@ -322,14 +322,14 @@ module ozone_decode
                                 endcase
 
                                 uop_out[0].uop_type <= UOP_AND;
-                                uop_out[0].a        <= 6'd32;
+                                uop_out[0].a        <= packet.reg_d;
                                 uop_out[0].b        <= packet.reg_d;
                                 uop_out[0].imm_opnd <= 1'b1;
                                 uop_out[0].imm_bits <= ~mask;
 
                                 uop_out[1].uop_type <= UOP_OR;
                                 uop_out[1].a        <= packet.reg_d;
-                                uop_out[1].b        <= 6'd32;
+                                uop_out[1].b        <= packet.reg_d;
                                 uop_out[1].imm_opnd <= 1'b1;
                                 uop_out[1].imm_bits <= 64'(packet.imm) << {packet.hw_val, 4'b0};
                             end

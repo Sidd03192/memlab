@@ -13,7 +13,8 @@ module Top
     output reg        done,
 
     // Register File (Exposed for testbench to copy to SHM)
-    output reg [63:0] x_regs [0:30]
+    output reg [63:0] x_regs [0:30],
+    output reg [63:0] fp_regs [0:31]
 );
 
     // Temporary bring-up switch: standalone Verilator tests currently expect
@@ -353,6 +354,7 @@ module Top
             itlb_flush      <= 1'b0;
             insn_ready      <= 1'b0;
             for (int i = 0; i < 31; i++) x_regs[i] <= 64'b0;
+            for (int i = 0; i < 32; i++) fp_regs[i] <= 64'b0;
 
             if (!reset_seen) begin
                 $display("Did reset!\n");
@@ -365,6 +367,10 @@ module Top
 
             if (commit_reg_en && commit_reg_addr != 5'd31) begin
                 x_regs[commit_reg_addr] <= commit_reg_value;
+            end
+
+            if (commit_fp_en) begin
+                fp_regs[commit_fp_addr] <= commit_fp_value;
             end
 
             if (rob_alloc_valid) begin
