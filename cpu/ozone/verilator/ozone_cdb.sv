@@ -11,16 +11,18 @@ module ozone_cdb
     input  cdb_broadcast_t              logic_req,
     input  cdb_broadcast_t              fpu_req,
     input  cdb_broadcast_t              mem_req,
-    // for oldest rob comparisoin
+    input  cdb_broadcast_t              lsq_req,
+    // for oldest rob comparison
     input  logic [ROB_IDX_BITS-1:0]     rob_head,
 
-    // one shared broadcast 
+    // one shared broadcast
     output cdb_broadcast_t              cdb_broadcast,
-    //grants for what won
+    // grants for what won
     output logic                        adder_granted,
     output logic                        logic_granted,
     output logic                        fpu_granted,
-    output logic                        mem_granted
+    output logic                        mem_granted,
+    output logic                        lsq_granted
 );
 
     typedef enum logic [2:0] {
@@ -28,15 +30,16 @@ module ozone_cdb
         WIN_ADDER = 3'd1,
         WIN_LOGIC = 3'd2,
         WIN_FPU   = 3'd3,
-        WIN_MEM   = 3'd4
+        WIN_MEM   = 3'd4,
+        WIN_LSQ   = 3'd5
     } cdb_winner_e;
 
     logic [ROB_IDX_BITS-1:0] adder_age;
     logic [ROB_IDX_BITS-1:0] logic_age;
     logic [ROB_IDX_BITS-1:0] fpu_age;
     logic [ROB_IDX_BITS-1:0] mem_age;
+    logic [ROB_IDX_BITS-1:0] lsq_age;
 
-    // age of a rob entry (as a func)
     function automatic logic [ROB_IDX_BITS-1:0] rob_age(
         input logic [ROB_IDX_BITS-1:0] rob_tag,
         input logic [ROB_IDX_BITS-1:0] head
@@ -46,11 +49,10 @@ module ozone_cdb
 
     assign adder_age = rob_age(adder_req.rob_tag, rob_head);
     assign logic_age = rob_age(logic_req.rob_tag, rob_head);
-    assign fpu_age   = rob_age(fpu_req.rob_tag, rob_head);
-    assign mem_age   = rob_age(mem_req.rob_tag, rob_head);
+    assign fpu_age   = rob_age(fpu_req.rob_tag,   rob_head);
+    assign mem_age   = rob_age(mem_req.rob_tag,   rob_head);
+    assign lsq_age   = rob_age(lsq_req.rob_tag,   rob_head);
 
-    // Choose the oldest valid completed result and broadcast it unchanged.
-    // Only one request may win in a cycle; losers keep holding their result.
     always_comb begin
         cdb_winner_e                winner;
         logic [ROB_IDX_BITS-1:0]    best_age;
@@ -60,12 +62,11 @@ module ozone_cdb
         logic_granted = 1'b0;
         fpu_granted   = 1'b0;
         mem_granted   = 1'b0;
+        lsq_granted   = 1'b0;
 
         winner   = WIN_NONE;
         best_age = '0;
 
-        // fixed scan order is only a deterministic fallback; in legal states
-        // the smallest modulo age should uniquely identify the oldest request
         if (adder_req.valid) begin
             winner   = WIN_ADDER;
             best_age = adder_age;
@@ -85,10 +86,15 @@ module ozone_cdb
 
         if (mem_req.valid &&
             ((winner == WIN_NONE) || (mem_age < best_age))) begin
-            winner = WIN_MEM;
+            winner   = WIN_MEM;
+            best_age = mem_age;
         end
 
-        // one hot granting stuff
+        if (lsq_req.valid &&
+            ((winner == WIN_NONE) || (lsq_age < best_age))) begin
+            winner = WIN_LSQ;
+        end
+
         case (winner)
             WIN_ADDER: begin
                 cdb_broadcast = adder_req;
@@ -105,6 +111,10 @@ module ozone_cdb
             WIN_MEM: begin
                 cdb_broadcast = mem_req;
                 mem_granted   = 1'b1;
+            end
+            WIN_LSQ: begin
+                cdb_broadcast = lsq_req;
+                lsq_granted   = 1'b1;
             end
             default: begin
                 cdb_broadcast = '0;

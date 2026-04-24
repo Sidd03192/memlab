@@ -75,7 +75,17 @@ module ozone_dispatch
     // ─── AGU RS ───────────────────────────────────────────────────────────
     output logic          agu_alloc_valid,
     output rs_entry_add_t agu_alloc_entry,
-    input  logic          agu_full
+    input  logic          agu_full,
+
+    // ─── LSQ dispatch ─────────────────────────────────────────────────────
+    output logic        lsq_alloc_valid,
+    output logic [5:0]  lsq_rob_entry_id,
+    output logic [5:0]  lsq_rob_wdata_entry_id,
+    output logic [63:0] lsq_rob_wdata,
+    output logic        lsq_rob_wdata_ready,
+    output logic        lsq_is_load,
+    input  logic        lq_full,
+    input  logic        sq_full
 );
 
 // ─── FSM ───────────────────────────────────────────────────────────────────
@@ -100,11 +110,14 @@ logic active;
 assign active = (state == DS_DISP1) || (state == DS_IDLE && uop_valid);
 
 // ─── regstate address outputs (always driven from cur) ────────────────────
+// For stores (UOP_WR): src2 port reads the store-data register (a) instead
+// of the c operand, since stores need 3 sources (base, offset, data) but
+// offset is always immediate for M-format, freeing the src2 slot.
 always_comb begin
     rst_src1_addr    = cur.b[4:0];
-    rst_src2_addr    = cur.c[4:0];
+    rst_src2_addr    = (cur.uop_type == UOP_WR) ? cur.a[4:0] : cur.c[4:0];
     rst_fp_src1_addr = cur.b[4:0];
-    rst_fp_src2_addr = cur.c[4:0];
+    rst_fp_src2_addr = (cur.uop_type == UOP_WR) ? cur.a[4:0] : cur.c[4:0];
 end
 
 // ─── source operand resolution: Vj/Qj (src1 = uop.b) ─────────────────────
@@ -158,6 +171,10 @@ always_comb begin
 end
 
 // ─── source operand resolution: Vk/Qk (src2 = uop.c or immediate) ─────────
+// For UOP_WR (stores): src2_st was redirected above to hold store-data status.
+// The address offset is always an immediate (imm_opnd=1 for M-format), so
+// Vk=imm_bits and Qk=0 — the store-data register status in src2_st is only
+// consumed by the Vdata/Qdata block below.
 logic [63:0] Vk;
 logic [5:0]  Qk;
 reg_entry_t  src2_st;
@@ -185,6 +202,34 @@ always_comb begin
     end
 end
 
+// ─── store-data operand (Vdata/Qdata) — UOP_WR only ──────────────────────
+// src2_st was redirected to read the store-data register (a) for stores.
+// ROB forwarding reuses rob_src2_idx/rob_src2_val since imm_opnd=1 means
+// Qk=0 and the src2 ROB read is otherwise unused for stores.
+logic [63:0] Vdata;
+logic [5:0]  Qdata;
+
+always_comb begin
+    if (cur.uop_type == UOP_WR) begin
+        if (cur.a == 6'd32) begin
+            Vdata = 64'b0;
+            Qdata = 6'b0;
+        end else if (!src2_st.busy) begin
+            Vdata = src2_st.value;
+            Qdata = 6'b0;
+        end else if (rob_src2_ready) begin
+            Vdata = rob_src2_val;
+            Qdata = 6'b0;
+        end else begin
+            Vdata = 64'b0;
+            Qdata = src2_st.rob_idx;
+        end
+    end else begin
+        Vdata = 64'b0;
+        Qdata = 6'b0;
+    end
+end
+
 // ─── FU routing ───────────────────────────────────────────────────────────
 logic goes_adder, goes_logic, goes_fpu, goes_agu;
 
@@ -208,10 +253,12 @@ always_comb begin
 end
 
 logic target_full, stall, do_dispatch;
-assign target_full = (goes_adder && adder_full) ||
-                     (goes_logic && logic_full)  ||
-                     (goes_fpu   && fpu_full)    ||
-                     (goes_agu   && agu_full);
+assign target_full = (goes_adder && adder_full)                     ||
+                     (goes_logic && logic_full)                      ||
+                     (goes_fpu   && fpu_full)                        ||
+                     (goes_agu   && agu_full)                        ||
+                     (cur.uop_type == UOP_RD && lq_full)            ||
+                     (cur.uop_type == UOP_WR && sq_full);
 assign stall       = rob_full || target_full;
 assign do_dispatch = active && !stall;
 
@@ -257,14 +304,16 @@ end
 // ─── ROB alloc ────────────────────────────────────────────────────────────
 always_comb begin
     rob_alloc_valid    = do_dispatch;
-    rob_alloc_has_dest = (cur.a != 6'd32);
+    // Stores (UOP_WR) write no architectural register — dest is NONE.
+    rob_alloc_has_dest = (cur.a != 6'd32) && (cur.uop_type != UOP_WR);
 
     rob_alloc_data             = '0;
     rob_alloc_data.PC          = {16'b0, cur.pc};
     rob_alloc_data.dest_reg    = cur.a[4:0];
-    rob_alloc_data.dest_type   = (cur.a == 6'd32) ? DEST_NONE :
-                                  (cur.fp_bit)     ? DEST_FPR  : DEST_GPR;
-    rob_alloc_data.alloc_has_dest = (cur.a != 6'd32);
+    rob_alloc_data.dest_type   = (cur.uop_type == UOP_WR) ? DEST_NONE :
+                                  (cur.a == 6'd32)         ? DEST_NONE :
+                                  (cur.fp_bit)             ? DEST_FPR  : DEST_GPR;
+    rob_alloc_data.alloc_has_dest = (cur.a != 6'd32) && (cur.uop_type != UOP_WR);
     rob_alloc_data.update_nzcv = cur.set_flags;
     rob_alloc_data.inst_type   =
         (cur.uop_type == UOP_RD)   ? ROB_TYPE_LOAD  :
@@ -350,6 +399,9 @@ always_comb begin
 end
 
 // ─── AGU RS entry ─────────────────────────────────────────────────────────
+// For UOP_RD/WR: Vj=base, Vk=offset (always imm), rob_tag = this instruction's
+// ROB entry.  The LSQ is dispatched simultaneously with the same rob_tag so it
+// can match the AGU's EA broadcast on the CDB.
 always_comb begin
     agu_alloc_valid           = do_dispatch && goes_agu;
     agu_alloc_entry           = '0;
@@ -360,19 +412,33 @@ always_comb begin
     agu_alloc_entry.Qj        = Qj;
     agu_alloc_entry.Qk        = Qk;
     agu_alloc_entry.has_rd    = (cur.a != 6'd32);
-    agu_alloc_entry.op        = (cur.uop_type == UOP_WR) ? OP_SUB : OP_ADD;
+    agu_alloc_entry.op        = OP_ADD;
+end
+
+// ─── LSQ dispatch ─────────────────────────────────────────────────────────
+always_comb begin
+    lsq_alloc_valid        = do_dispatch &&
+                             (cur.uop_type == UOP_RD || cur.uop_type == UOP_WR);
+    lsq_is_load            = (cur.uop_type == UOP_RD);
+    lsq_rob_entry_id       = rob_alloc_idx;
+    // Store wdata: Vdata/Qdata resolved from the store-data register (a).
+    lsq_rob_wdata_entry_id = Qdata;
+    lsq_rob_wdata          = Vdata;
+    lsq_rob_wdata_ready    = (cur.uop_type == UOP_WR) && (Qdata == 6'b0);
 end
 
 // ─── regstate writes ─────────────────────────────────────────────────────
 always_comb begin
-    // GPR: mark dest busy (skip XZR=32 and SP=31 which regstate guards too)
+    // GPR: mark dest busy (skip XZR=32, SP=31, and stores which write no reg)
     rst_wr_en    = do_dispatch && !cur.fp_bit &&
-                   (cur.a != 6'd32) && (cur.a != 6'd31);
+                   (cur.a != 6'd32) && (cur.a != 6'd31) &&
+                   (cur.uop_type != UOP_WR);
     rst_wr_addr  = cur.a[4:0];
     rst_rob_idx  = rob_alloc_idx;
 
     // FPR: mark dest busy
-    rst_fp_wr_en    = do_dispatch && cur.fp_bit && (cur.a != 6'd32);
+    rst_fp_wr_en    = do_dispatch && cur.fp_bit && (cur.a != 6'd32) &&
+                      (cur.uop_type != UOP_WR);
     rst_fp_wr_addr  = cur.a[4:0];
     rst_fp_rob_idx  = rob_alloc_idx;
 
