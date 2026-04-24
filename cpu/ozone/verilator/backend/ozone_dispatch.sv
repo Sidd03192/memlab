@@ -68,9 +68,9 @@ module ozone_dispatch
     input  logic          logic_full,
 
     // ─── FPU RS ───────────────────────────────────────────────────────────
-    output logic            fpu_alloc_valid,
-    output rs_entry_fpmul_t fpu_alloc_entry,
-    input  logic            fpu_full,
+    output logic          fpu_alloc_valid,
+    output rs_entry_fp_t  fpu_alloc_entry,
+    input  logic          fpu_full,
 
     // ─── AGU RS ───────────────────────────────────────────────────────────
     output logic          agu_alloc_valid,
@@ -115,19 +115,17 @@ reg_entry_t  src1_st;
 always_comb begin
     // Immediate branches use the instruction PC as their first operand so the
     // adder can form PC-relative targets.
-    if (cur.check_target && cur.imm_opnd) begin
-        src1_st      = '0;
-    end else if (cur.uop_type == UOP_COND_CHECK) begin
+    if (cur.uop_type == UOP_COND_CHECK) begin
         src1_st      = rst_nzcv_status;
+    end else if (cur.check_target && cur.imm_opnd && cur.b == 6'd32) begin
+        // Immediate branch with no register source (B/BL): Vj = PC
+        src1_st      = '0;
     end else begin
         src1_st      = cur.fp_bit ? rst_fp_src1_status : rst_src1_status;
     end
     rob_src1_idx = src1_st.rob_idx;
 
-    if (cur.check_target && cur.imm_opnd) begin
-        Vj = {16'b0, cur.pc};
-        Qj = 6'b0;
-    end else if (cur.uop_type == UOP_COND_CHECK) begin
+    if (cur.uop_type == UOP_COND_CHECK) begin
         // NZCV source: value lives in low 4 bits of nzcv_reg.value
         if (!src1_st.busy) begin
             Vj = {60'b0, src1_st.value[3:0]};
@@ -139,6 +137,10 @@ always_comb begin
             Vj = 64'b0;
             Qj = src1_st.rob_idx;
         end
+    end else if (cur.check_target && cur.imm_opnd && cur.b == 6'd32) begin
+        // B/BL: Vj = PC so adder computes PC + offset
+        Vj = {16'b0, cur.pc};
+        Qj = 6'b0;
     end else if (cur.b == 6'd32) begin
         // XZR or no source — always zero, no dependency
         Vj = 64'b0;
@@ -218,12 +220,16 @@ adder_op_e adder_op;
 always_comb begin
     unique case (cur.uop_type)
         UOP_ADD: begin
-            if (cur.check_target)
-                // imm_opnd distinguishes BL (imm offset) from BLR (register target)
-                adder_op = (cur.a == 6'd30 && !cur.imm_opnd) ? OP_BLR :
-                           (cur.a == 6'd30)                   ? OP_BL  : OP_B;
+            if (cur.check_target) begin
+                if (cur.imm_opnd && cur.b != 6'd32)
+                    // CBZ/CBNZ: b=Rt (register to test), imm_opnd=1 for absolute target
+                    adder_op = cur.neg_c_or_imm ? OP_CBNZ : OP_CBZ;
+                else
+                    // imm_opnd distinguishes BL (imm offset) from BLR (register target)
+                    adder_op = (cur.a == 6'd30 && !cur.imm_opnd) ? OP_BLR :
+                               (cur.a == 6'd30)                   ? OP_BL  : OP_B;
             // a==32 means no writeback (CMP / CMN)
-            else if (cur.a == 6'd32 && cur.set_flags)
+            end else if (cur.a == 6'd32 && cur.set_flags)
                 adder_op = cur.neg_c_or_imm ? OP_CMP : OP_CMN;
             else if (cur.neg_c_or_imm)
                 adder_op = cur.set_flags ? OP_SUBS : OP_SUB;
@@ -231,11 +237,9 @@ always_comb begin
                 adder_op = cur.set_flags ? OP_ADDS : OP_ADD;
         end
         UOP_COND_CHECK: adder_op = OP_BCOND;
-        // Shifter RS is a stub; shift uops fall back to the adder bus
-        // and will be handled when ozone_shifter is implemented.
-        UOP_LSL:        adder_op = OP_ADD;
-        UOP_LSR:        adder_op = OP_ADD;
-        UOP_ASR:        adder_op = OP_ADD;
+        UOP_LSL:        adder_op = OP_LSL;
+        UOP_LSR:        adder_op = OP_LSR;
+        UOP_ASR:        adder_op = OP_ASR;
         default:        adder_op = OP_ADD;
     endcase
 end
@@ -278,7 +282,7 @@ always_comb begin
     adder_alloc_entry           = '0;
     adder_alloc_entry.valid     = 1'b1;
     adder_alloc_entry.rob_tag   = rob_alloc_idx;
-    adder_alloc_entry.Vj        = Vj;
+    adder_alloc_entry.Vj        = (adder_op == OP_BCOND) ? {16'b0, cur.pc} : Vj;
     // BLR: Vj=reg_n (branch target), Vk carries PC+4 (return address).
     // c=XZR so Vk/Qk were both 0; safe to override.
     adder_alloc_entry.Vk        = (adder_op == OP_BLR) ? ({16'b0, cur.pc} + 64'd4) : Vk;
@@ -289,7 +293,12 @@ always_comb begin
     // B.cond: pass the condition code via branch_cond.
     // NOTE: uop_t has no cond_code field yet — imm_bits[3:0] is used as
     // a workaround until the decode is extended.
-    adder_alloc_entry.branch_cond = cond_code_e'(cur.imm_bits[3:0]);
+    adder_alloc_entry.branch_cond = (adder_op == OP_BCOND) ?
+                                    cond_code_e'(cur.c[3:0]) :
+                                    cond_code_e'(cur.imm_bits[3:0]);
+    adder_alloc_entry.nzcv        = (adder_op == OP_BCOND) ? Vj[3:0] : 4'b0;
+    adder_alloc_entry.shift_amt   = cur.shift_amt;
+    adder_alloc_entry.shift_type  = cur.shift_type;
 end
 
 // ─── Logic RS entry ───────────────────────────────────────────────────────
@@ -304,19 +313,40 @@ always_comb begin
     logic_alloc_entry.Qk           = Qk;
     logic_alloc_entry.op           = 6'(logic_op);
     logic_alloc_entry.updates_nzcv = cur.set_flags;
+    logic_alloc_entry.shift_amt    = cur.shift_amt;
+    logic_alloc_entry.shift_type   = cur.shift_type;
 end
 
 // ─── FPU RS entry ─────────────────────────────────────────────────────────
 always_comb begin
-    fpu_alloc_valid           = do_dispatch && goes_fpu;
-    fpu_alloc_entry           = '0;
-    fpu_alloc_entry.valid     = 1'b1;
-    fpu_alloc_entry.rob_tag   = rob_alloc_idx;
-    fpu_alloc_entry.Vj        = Vj;
-    fpu_alloc_entry.Vk        = Vk;
-    fpu_alloc_entry.Qj        = Qj;
-    fpu_alloc_entry.Qk        = Qk;
-    fpu_alloc_entry.round_mode = 2'b00; // round-to-nearest-even default
+    fpu_alloc_valid              = do_dispatch && goes_fpu;
+    fpu_alloc_entry              = '0;
+    fpu_alloc_entry.valid        = 1'b1;
+    fpu_alloc_entry.rob_tag      = rob_alloc_idx;
+    fpu_alloc_entry.Vj           = Vj;
+    fpu_alloc_entry.Vk           = Vk;
+    fpu_alloc_entry.Qj           = Qj;
+    fpu_alloc_entry.Qk           = Qk;
+    fpu_alloc_entry.rnd_mode     = fpnew_pkg::RNE;
+    fpu_alloc_entry.src_fmt      = fpnew_pkg::FP64;
+    fpu_alloc_entry.dst_fmt      = fpnew_pkg::FP64;
+    fpu_alloc_entry.int_fmt      = fpnew_pkg::INT64;
+    fpu_alloc_entry.vectorial_op = 1'b0;
+    // Map uop type to fpnew operation
+    unique case (cur.uop_type)
+        UOP_FADD: begin
+            fpu_alloc_entry.op     = fpnew_pkg::ADD;
+            fpu_alloc_entry.op_mod = cur.neg_c_or_imm; // 0=FADD, 1=FSUB
+        end
+        UOP_FMUL: begin
+            fpu_alloc_entry.op     = fpnew_pkg::MUL;
+            fpu_alloc_entry.op_mod = 1'b0;
+        end
+        default: begin  // UOP_NAN_CHECK (FCMP path)
+            fpu_alloc_entry.op     = fpnew_pkg::CLASSIFY;
+            fpu_alloc_entry.op_mod = 1'b0;
+        end
+    endcase
 end
 
 // ─── AGU RS entry ─────────────────────────────────────────────────────────

@@ -109,8 +109,8 @@ module Top
     rs_entry_add_t    adder_alloc_entry;
     logic             logic_alloc_valid, logic_full, logic_granted;
     rs_entry_t        logic_alloc_entry;
-    logic             fpu_alloc_valid, fpu_full, fpu_granted;
-    rs_entry_fpmul_t  fpu_alloc_entry;
+    logic           fpu_alloc_valid, fpu_full, fpu_granted;
+    rs_entry_fp_t   fpu_alloc_entry;
     logic             agu_alloc_valid, agu_full, agu_granted;
     rs_entry_add_t    agu_alloc_entry;
 
@@ -308,7 +308,7 @@ module Top
         .cdb_granted(agu_granted)
     );
 
-    ozone_rs_fpmult fpu (
+    fpnew_top fpu (
         .clk        (clk),
         .rst_n      (rst_n),
         .flush      (pipe_flush),

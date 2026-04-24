@@ -103,6 +103,13 @@ module ozone_decode
             comb_ins_valid  = 1'b1;
         end
 
+        // Format 2 (I2): compare-and-branch (CBZ / CBNZ), 64-bit.
+        // bits[30:25]=011010; bit[24] selects CBZ(0)/CBNZ(1).
+        else if (insn_bits[31] == 1'b1 && insn_bits[30:25] == 6'b011010) begin
+            comb_ins_format = 4'd2;
+            comb_ins_valid  = 1'b1;
+        end
+
         // Format 5 (B1): unconditional branch (B / BL).
         // bits[30:26]=00101; bit[31] distinguishes B(0) from BL(1).
         else if (insn_bits[30:26] == 5'b00101) begin
@@ -200,8 +207,17 @@ module ozone_decode
                         6: begin
                             // B2-format
                             packet.opcode    <= {3'b0, insn_bits[31:24]};
-                            packet.imm       <= {{45{insn_bits[23]}}, insn_bits[23:5]};
+                            packet.imm       <= {{43{insn_bits[23]}}, insn_bits[23:5], 2'b0};
                             packet.cond_code <= insn_bits[3:0];
+                        end
+                        2: begin
+                            // I2-format (CBZ/CBNZ): Rt is register to test; imm holds
+                            // the absolute branch target (PC + sign_ext(imm19)<<2).
+                            packet.reg_t  <= insn_bits[4:0] == 5'b11111 ? 6'd32 : {1'b0, insn_bits[4:0]};
+                            packet.imm    <= {16'b0, insn_pc} +
+                                            {{43{insn_bits[23]}}, insn_bits[23:5], 2'b0};
+                            // opcode[0]=0 → CBZ, opcode[0]=1 → CBNZ
+                            packet.opcode <= {10'b0, insn_bits[24]};
                         end
                         7: begin
                             // B3-format
@@ -346,35 +362,52 @@ module ozone_decode
                                     4'hA: uop_out[0].uop_type <= UOP_ASR;
                                     default: uop_out[0].uop_type <= UOP_LSL;
                                 endcase
-                            end else begin
-                                uop_out[0].a         <= 6'd32;
-                                uop_out[0].b         <= packet.reg_m;
-                                uop_out[0].imm_opnd <= 1;
-                                uop_out[0].imm_bits <= {56'b0, packet.imm[5:0]};
+                            end else if (packet.shift_type == 2'b00 && packet.imm[5:0] == 6'd0) begin
+                                uop_out[0].a <= packet.reg_d;
+                                uop_out[0].b <= packet.reg_n;
+                                uop_out[0].c <= packet.reg_m;
 
-                                case (packet.shift_type)
-                                    0: uop_out[0].uop_type <= UOP_LSL;
-                                    1: uop_out[0].uop_type <= UOP_LSR;
-                                    2: uop_out[0].uop_type <= UOP_ASR;
-                                endcase
-
-                                uop_out[1].a <= packet.reg_d;
-                                uop_out[1].b <= packet.reg_n;
-                                uop_out[1].c <= 6'd32;
-                                uop_out[1].set_flags <= 1;
-                                if (packet.opcode[0]) begin  // insn_bits[24]=1 → arithmetic (01011)
-                                    uop_out[1].uop_type <= UOP_ADD;  // ADDS / SUBS
-                                    uop_out[1].neg_c_or_imm <= packet.opcode[6];
-                                end else begin               // insn_bits[24]=0 → logical (01010)
-                                    case (packet.opcode[6:5])  // opc[1:0] = insn_bits[30:29]
+                                if (packet.opcode[0]) begin  // arithmetic shifted-register with no shift
+                                    uop_out[0].uop_type     <= UOP_ADD;
+                                    uop_out[0].set_flags    <= packet.opcode[5];
+                                    uop_out[0].neg_c_or_imm <= packet.opcode[6];
+                                end else begin              // logical shifted-register with no shift
+                                    case (packet.opcode[6:5])
                                         2'b01: begin
-                                            uop_out[1].uop_type <= UOP_OR;   // ORR / ORN
-                                            if (insn_bits[21]) begin
-                                                uop_out[1].neg_c_or_imm <= 1;
-                                            end
+                                            uop_out[0].uop_type <= UOP_OR;
+                                            uop_out[0].neg_c_or_imm <= insn_bits[21];
                                         end
-                                        2'b10: uop_out[1].uop_type <= UOP_XOR;  // EOR / EON
-                                        2'b11: uop_out[1].uop_type <= UOP_AND;  // ANDS / BICS
+                                        2'b10: uop_out[0].uop_type <= UOP_XOR;
+                                        2'b11: begin
+                                            uop_out[0].uop_type  <= UOP_AND;
+                                            uop_out[0].set_flags <= 1'b1;
+                                        end
+                                    endcase
+                                end
+                            end else begin
+                                // Non-zero shift: single uop with shift baked in.
+                                // The FU pre-shifts Vk by (shift_type, shift_amt) at issue.
+                                uop_out[0].a          <= packet.reg_d;
+                                uop_out[0].b          <= packet.reg_n;
+                                uop_out[0].c          <= packet.reg_m;
+                                uop_out[0].shift_amt  <= packet.imm[5:0];
+                                uop_out[0].shift_type <= packet.shift_type;
+                                if (packet.opcode[0]) begin  // arithmetic (01011)
+                                    uop_out[0].uop_type     <= UOP_ADD;
+                                    uop_out[0].set_flags    <= packet.opcode[5];
+                                    uop_out[0].neg_c_or_imm <= packet.opcode[6];
+                                end else begin               // logical (01010)
+                                    case (packet.opcode[6:5])
+                                        2'b01: begin
+                                            uop_out[0].uop_type     <= UOP_OR;
+                                            uop_out[0].neg_c_or_imm <= insn_bits[21];
+                                        end
+                                        2'b10: uop_out[0].uop_type <= UOP_XOR;
+                                        2'b11: begin
+                                            uop_out[0].uop_type  <= UOP_AND;
+                                            uop_out[0].set_flags <= 1'b1;
+                                        end
+                                        default: ;
                                     endcase
                                 end
                             end
@@ -410,6 +443,16 @@ module ozone_decode
                             end
                         end
 
+                        4'd2: begin  // I2: CBZ / CBNZ
+                            uop_out[0].uop_type     <= UOP_ADD;
+                            uop_out[0].a            <= 6'd32;          // no GPR destination
+                            uop_out[0].b            <= packet.reg_t;   // register to compare to 0
+                            uop_out[0].imm_opnd     <= 1'b1;           // Vk = absolute branch target
+                            uop_out[0].imm_bits     <= packet.imm;     // pre-computed absolute target
+                            uop_out[0].check_target <= 1'b1;
+                            uop_out[0].neg_c_or_imm <= packet.opcode[0]; // 0=CBZ, 1=CBNZ
+                        end
+
                         4'd5: begin  // B1: B / BL
                             // packet.opcode[5] == insn_bits[31]: 0=B, 1=BL (writes x30).
                             uop_out[0].uop_type <= UOP_ADD;
@@ -422,7 +465,8 @@ module ozone_decode
                         4'd6: begin  // B2: B.cond
                             uop_out[0].uop_type <= UOP_COND_CHECK;
                             uop_out[0].imm_opnd <= 1'b1;
-                            uop_out[0].imm_bits <= {{32{packet.imm[31]}}, packet.imm};
+                            uop_out[0].imm_bits <= packet.imm;
+                            uop_out[0].c <= {2'b0, packet.cond_code};
                             uop_out[0].check_target <= 1;
                         end
 
@@ -489,39 +533,27 @@ module ozone_decode
                                         default: ;
                                     endcase
                                 end
-                                6'b001010: begin  // FADD
-                                    uop_out[0].uop_type <= UOP_NAN_CHECK;
+                                6'b001010: begin  // FADD — single uop, fpnew handles NaN
+                                    uop_out[0].uop_type <= UOP_FADD;
+                                    uop_out[0].a        <= packet.reg_d;
                                     uop_out[0].b        <= packet.reg_n;
                                     uop_out[0].c        <= packet.reg_m;
                                     uop_out[0].fp_bit   <= 1'b1;
-                                    uop_out[1].uop_type <= UOP_FADD;
-                                    uop_out[1].a        <= packet.reg_d;
-                                    uop_out[1].b        <= packet.reg_n;
-                                    uop_out[1].c        <= packet.reg_m;
-                                    uop_out[1].fp_bit   <= 1'b1;
                                 end
-                                6'b000010: begin  // FMUL
-                                    uop_out[0].uop_type <= UOP_NAN_CHECK;
+                                6'b000010: begin  // FMUL — single uop
+                                    uop_out[0].uop_type <= UOP_FMUL;
+                                    uop_out[0].a        <= packet.reg_d;
                                     uop_out[0].b        <= packet.reg_n;
                                     uop_out[0].c        <= packet.reg_m;
                                     uop_out[0].fp_bit   <= 1'b1;
-                                    uop_out[1].uop_type <= UOP_FMUL;
-                                    uop_out[1].a        <= packet.reg_d;
-                                    uop_out[1].b        <= packet.reg_n;
-                                    uop_out[1].c        <= packet.reg_m;
-                                    uop_out[1].fp_bit   <= 1'b1;
                                 end
-                                6'b001110: begin  // FSUB: NAN_CHECK + FADD with negated Rm
-                                    uop_out[0].uop_type <= UOP_NAN_CHECK;
-                                    uop_out[0].b        <= packet.reg_n;
-                                    uop_out[0].c        <= packet.reg_m;
-                                    uop_out[0].fp_bit   <= 1'b1;
-                                    uop_out[1].uop_type     <= UOP_FADD;
-                                    uop_out[1].a            <= packet.reg_d;
-                                    uop_out[1].b            <= packet.reg_n;
-                                    uop_out[1].c            <= packet.reg_m;
-                                    uop_out[1].neg_c_or_imm <= 1'b1;
-                                    uop_out[1].fp_bit       <= 1'b1;
+                                6'b001110: begin  // FSUB — fpnew ADD with op_mod=1
+                                    uop_out[0].uop_type     <= UOP_FADD;
+                                    uop_out[0].a            <= packet.reg_d;
+                                    uop_out[0].b            <= packet.reg_n;
+                                    uop_out[0].c            <= packet.reg_m;
+                                    uop_out[0].neg_c_or_imm <= 1'b1;
+                                    uop_out[0].fp_bit       <= 1'b1;
                                 end
                                 6'b001000: begin  // FCMP (register): compare, no writeback
                                     uop_out[0].uop_type <= UOP_NAN_CHECK;
