@@ -7,6 +7,7 @@ module ozone_decode
 (
     input logic clk,
     input logic rst,
+    input logic flush,
     input logic [31:0] the_insn_bits,
     input logic [47:0] the_insn_pc,
     input logic insn_ready,
@@ -149,7 +150,7 @@ module ozone_decode
     end
 
     always_ff @(posedge clk) begin
-        if (rst) begin
+        if (rst || flush) begin
             decoder_state <= 0;
             uop_valid <= 1'b0;
             uop_out[0]   <= '0;
@@ -305,16 +306,14 @@ module ozone_decode
                     uop_out[1].pc <= insn_pc;
 
                     case (comb_ins_format)
-                        4'd0: begin  // M: load/store
-                            uop_out[0].uop_type <= UOP_AGU;
-                            uop_out[0].a        <= 6'd32;
-                            uop_out[0].b        <= packet.reg_n;
+                        4'd0: begin  // M: load/store — single uop
+                            uop_out[0].uop_type <= packet.opcode[1] ? UOP_RD : UOP_WR;
+                            uop_out[0].a        <= packet.reg_t;   // dest (load) or store data (store)
+                            uop_out[0].b        <= packet.reg_n;   // base address register
                             uop_out[0].imm_opnd <= 1'b1;
                             uop_out[0].imm_bits <= {{32{packet.imm[31]}}, packet.imm};
-
-                            uop_out[1].uop_type <= packet.opcode[1] ? UOP_RD : UOP_WR;
-                            uop_out[1].a        <= packet.reg_t;
-                            uop_out[1].fp_bit   <= packet.opcode[5];
+                            uop_out[0].fp_bit   <= packet.opcode[5];
+                            // uop_out[1] stays cleared — single-uop instruction
                         end
 
                         4'd1: begin  // I1: MOVZ / MOVK

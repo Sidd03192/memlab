@@ -1,5 +1,5 @@
 VERILATOR = verilator
-V_FLAGS = -Wall -Wno-fatal --cc --exe --build -j --top-module Top -I.
+V_FLAGS = -Wall -Wno-fatal --cc --exe --build -j --top-module Top -I. -I../../..
 FILES = types.sv \
 	fu/fpu/fpnew_pkg.sv \
 	fu/fpu/lzc.sv \
@@ -19,6 +19,15 @@ FILES = types.sv \
 	fu/fpu/fpnew_top_core.sv \
 	ozone_pkg.sv \
 	fu/fpu/fpnew_top.sv \
+	../../../mem_pkg.sv \
+	../../../ooo_pkg.sv \
+	../../../barrel_shifter.sv \
+	../../../tlb.sv \
+	../../../lsq.sv \
+	../../../l1_cache.sv \
+	../../../l2.sv \
+	../../../l2_sdram_master.sv \
+	../../../memsys.sv \
 	Top.sv \
 	frontend/ozone_itlb.sv \
 	frontend/ozone_decode.sv \

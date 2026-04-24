@@ -421,10 +421,11 @@ module lsq #(
                     if (fwd_hit) begin
                         lq_state[lq_found_entry] <= LQ_EMPTY;
 
-                        cdb_out.valid       <= 1'b1;
-                        cdb_out.rob_tag     <= lq_rob_id[lq_found_entry];
-                        cdb_out.rob_wb_en   <= 1'b1;
-                        cdb_out.value       <= fwd_data;
+                        cdb_out.valid        <= 1'b1;
+                        cdb_out.rob_tag      <= lq_rob_id[lq_found_entry];
+                        cdb_out.cdb_value_en <= 1'b1;
+                        cdb_out.rob_wb_en    <= 1'b1;
+                        cdb_out.value        <= fwd_data;
                         cdb_out.update_nzcv <= 1'b0;
                         cdb_out.nzcv        <= '0;
                         cdb_out.br_valid    <= 1'b0;
@@ -470,13 +471,12 @@ module lsq #(
                             && lq_rob_id[i] == mem_resp_lq_id) begin
 
                             lq_state[i] <= LQ_EMPTY;
-                            for (int j = 0; j < SQ_ENTRIES; j++)
-                                sq_before_vec[j][i] <= 1'b0;
 
-                            cdb_out.valid       <= 1'b1;
-                            cdb_out.rob_tag     <= lq_rob_id[i];
-                            cdb_out.rob_wb_en   <= 1'b1;
-                            cdb_out.value       <= mem_resp_data;
+                            cdb_out.valid        <= 1'b1;
+                            cdb_out.rob_tag      <= lq_rob_id[i];
+                            cdb_out.cdb_value_en <= 1'b1;
+                            cdb_out.rob_wb_en    <= 1'b1;
+                            cdb_out.value        <= mem_resp_data;
                             cdb_out.update_nzcv <= 1'b0;
                             cdb_out.nzcv        <= '0;
                             cdb_out.br_valid    <= 1'b0;

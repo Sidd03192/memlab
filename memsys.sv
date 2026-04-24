@@ -38,7 +38,10 @@ module memory_subsystem #(
     parameter L2_CAPACITY   = 4096,
     parameter L2_WAYS       = 4,
     parameter L2_MSHRS      = 4,
-    parameter USE_AVALON_MEM = 1'b0
+    parameter USE_AVALON_MEM    = 1'b0,
+    // When 1: skip TLB; use VA[PA_WIDTH-1:0] directly as PA (identity mapping).
+    // Safe for Verilator simulation with flat physical memory.
+    parameter USE_IDENTITY_TLB  = 1'b0
 )(
     input  logic clk,
     input  logic rst_n,
@@ -163,7 +166,7 @@ module memory_subsystem #(
     wire lsq_issue_slot_ready = issue_buf_empty;
 
     // =========================================================================
-    // TLB SIGNALS
+    // TLB SIGNALS — declared early so trace_ready assign above can reference them
     // =========================================================================
     logic tlb_ready;
     logic tlb_valid;
@@ -289,17 +292,26 @@ module memory_subsystem #(
     // =========================================================================
     // TLB INSTANTIATION
     // =========================================================================
-    tlb u_tlb (
-        .clk         (clk),
-        .rst_n       (rst_n),
-        .start       (tlb_start),
-        .is_tlb_fill (is_tlb_fill_now),
-        .vaddr       (tlb_vaddr_mux),
-        .paddr       (trace_tlb_paddr),
-        .ready       (tlb_ready),
-        .valid       (tlb_valid),
-        .result_paddr(tlb_result_paddr)
-    );
+    generate
+        if (USE_IDENTITY_TLB) begin : gen_tlb_bypass
+            // Identity mapping: VA[PA_WIDTH-1:0] == PA, always hits, 0-cycle latency.
+            assign tlb_ready        = 1'b1;
+            assign tlb_valid        = tlb_start;
+            assign tlb_result_paddr = tlb_vaddr_mux[PA_WIDTH-1:0];
+        end else begin : gen_tlb_real
+            tlb u_tlb (
+                .clk         (clk),
+                .rst_n       (rst_n),
+                .start       (tlb_start),
+                .is_tlb_fill (is_tlb_fill_now),
+                .vaddr       (tlb_vaddr_mux),
+                .paddr       (trace_tlb_paddr),
+                .ready       (tlb_ready),
+                .valid       (tlb_valid),
+                .result_paddr(tlb_result_paddr)
+            );
+        end
+    endgenerate
 
     // =========================================================================
     // L1 CACHE INSTANTIATION
