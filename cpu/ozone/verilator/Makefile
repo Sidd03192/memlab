@@ -1,7 +1,33 @@
 VERILATOR = verilator
-V_FLAGS = -Wall -Wno-fatal --cc --exe --build -j --top-module Top
+V_FLAGS = -Wall -Wno-fatal --cc --exe --build -j --top-module Top -I. -I../../..
 FILES = types.sv \
+	fu/fpu/fpnew_pkg.sv \
+	fu/fpu/lzc.sv \
+	fu/fpu/rr_arb_tree.sv \
+	fu/fpu/fpnew_classifier.sv \
+	fu/fpu/fpnew_rounding.sv \
+	fu/fpu/fpnew_fma.sv \
+	fu/fpu/fpnew_fma_multi.sv \
+	fu/fpu/fpnew_noncomp.sv \
+	fu/fpu/fpnew_cast_multi.sv \
+	fu/fpu/fpnew_divsqrt_multi.sv \
+	fu/fpu/fpnew_divsqrt_th_32.sv \
+	fu/fpu/fpnew_divsqrt_th_64_multi.sv \
+	fu/fpu/fpnew_opgroup_fmt_slice.sv \
+	fu/fpu/fpnew_opgroup_multifmt_slice.sv \
+	fu/fpu/fpnew_opgroup_block.sv \
+	fu/fpu/fpnew_top_core.sv \
 	ozone_pkg.sv \
+	fu/fpu/fpnew_top.sv \
+	../../../mem_pkg.sv \
+	../../../ooo_pkg.sv \
+	../../../barrel_shifter.sv \
+	../../../tlb.sv \
+	../../../lsq.sv \
+	../../../l1_cache.sv \
+	../../../l2.sv \
+	../../../l2_sdram_master.sv \
+	../../../memsys.sv \
 	Top.sv \
 	frontend/ozone_itlb.sv \
 	frontend/ozone_decode.sv \
@@ -10,13 +36,12 @@ FILES = types.sv \
 	backend/ozone_regstate.sv \
 	fu/ozone_adder.sv \
 	fu/ozone_logic.sv \
-	fu/ozone_fpu.sv \
 	fu/ozone_agu.sv \
 	ozone_cdb.sv
 
 all: obj_dir/VTop
 
-obj_dir/VTop: Top.sv sim_main.cpp
+obj_dir/VTop: $(FILES) sim_main.cpp
 	$(VERILATOR) $(V_FLAGS) $(FILES) sim_main.cpp -o VTop
 
 decode_tb: obj_dir/Vdecode_tb

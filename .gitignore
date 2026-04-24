@@ -2,3 +2,4 @@ plan.md
 memory_subsystem.sv
 docs
 *.vcd
+.DS_Store

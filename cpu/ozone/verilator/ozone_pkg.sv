@@ -2,6 +2,9 @@
 // ROB/RS/LSQ metadata types, exception codes, and common constants.
 package ozone_pkg;
 
+// FPU Import
+import fpnew_pkg::*;
+
 // -------------------------------------------------------
 // Global Parameters
 // -------------------------------------------------------
@@ -84,46 +87,67 @@ typedef struct packed {
 } reg_entry_t;
 
 
-// Reservation station entry 
+// Reservation station entry (logic FU)
 typedef struct packed {
-    logic                       value;     // computed value (when ready)
-    logic [63:0]                Vj;       // value of source 1 (when ready)
-    logic [63:0]                Vk;       // value of source 2 (when ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qj;       // ROB tag for source 1 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qk;       // ROB tag for source 2 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   rob_tag; // which ROB entry gets the result
+    logic                       value;
+    logic [63:0]                Vj;
+    logic [63:0]                Vk;
+    logic [ROB_IDX_WIDTH-1:0]   Qj;
+    logic [ROB_IDX_WIDTH-1:0]   Qk;
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
     logic                       valid;
-    logic [OPCODE_W-1:0]        op; // FU can do multiple micro-ops
-    logic [3:0]                 nzcv;      // NZCV flags for this instruction 
-    logic                       updates_nzcv; // does this instruction update NZCV?
+    logic [OPCODE_W-1:0]        op;
+    logic [3:0]                 nzcv;
+    logic                       updates_nzcv;
+    logic [5:0]                 shift_amt;   // pre-shift Vk amount (0 = identity)
+    logic [1:0]                 shift_type;  // 00=LSL, 01=LSR, 10=ASR
 } rs_entry_t;
 
 
+// Reservation station entry (adder FU)
 typedef struct packed {
-    logic [63:0]                value;     // computed value (when ready)
-    logic [63:0]                Vj;       // value of source 1 (when ready)
-    logic [63:0]                Vk;       // value of source 2 (when ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qj;       // ROB tag for source 1 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   Qk;       // ROB tag for source 2 (0 = ready)
-    logic [ROB_IDX_WIDTH-1:0]   rob_tag; // which ROB entry gets the result
+    logic [63:0]                value;
+    logic [63:0]                Vj;
+    logic [63:0]                Vk;
+    logic [ROB_IDX_WIDTH-1:0]   Qj;
+    logic [ROB_IDX_WIDTH-1:0]   Qk;
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
     logic                       valid;
-    logic [OPCODE_W-1:0]        op; // FU can do multiple micro-ops
-    logic [3:0]                 nzcv;      // NZCV flags for this instruction 
-    cond_code_e                 branch_cond; // condition code for B.cond
-    logic                      branch_target; // computed target
-    logic                      branch_taken;  // computed taken/not taken (true value)
-    logic                      pred_taken;    // branch predictor's taken/not-taken decision
-    logic                      has_rd;        // use for AGU, marks if op writes back to register file
+    adder_op_e                  op;
+    logic [3:0]                 nzcv;
+    cond_code_e                 branch_cond;
+    logic                       branch_target;
+    logic                       branch_taken;
+    logic                       pred_taken;
+    logic                       has_rd;
+    logic [5:0]                 shift_amt;   // pre-shift Vk amount (0 = identity)
+    logic [1:0]                 shift_type;  // 00=LSL, 01=LSR, 10=ASR
 } rs_entry_add_t;
 
 typedef struct packed {
-  logic              valid;
-  logic [ROB_IDX_WIDTH-1:0] rob_tag;
-  logic [63:0]       Vj;          // operand X (FP word in low P+Q bits)
-  logic [63:0]       Vk;          // operand Y (FP word in low P+Q bits)
-  logic [ROB_IDX_WIDTH-1:0] Qj;   // producer tag for Vj (0 = ready)
-  logic [ROB_IDX_WIDTH-1:0] Qk;   // producer tag for Vk (0 = ready)
-  logic [1:0]        round_mode;  // rounding specifier
+    logic [63:0]                Vj;
+    logic [63:0]                Vk;
+    logic [ROB_IDX_WIDTH-1:0]   Qj;
+    logic [ROB_IDX_WIDTH-1:0]   Qk;
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
+    logic                       valid;
+    fpnew_pkg::operation_e      op;
+    logic                       op_mod;
+    fpnew_pkg::fp_format_e      src_fmt;
+    fpnew_pkg::fp_format_e      dst_fmt;
+    fpnew_pkg::int_format_e     int_fmt;
+    fpnew_pkg::roundmode_e      rnd_mode;
+    logic                       vectorial_op;
+} rs_entry_fp_t;
+
+typedef struct packed {
+    logic [63:0]                Vj;          // operand X (FP word in low P+Q bits)
+    logic [63:0]                Vk;          // operand Y (FP word in low P+Q bits)
+    logic [ROB_IDX_WIDTH-1:0]   Qj;          // producer tag for Vj (0 = ready)
+    logic [ROB_IDX_WIDTH-1:0]   Qk;          // producer tag for Vk (0 = ready)
+    logic [ROB_IDX_WIDTH-1:0]   rob_tag;
+    logic                       valid;
+    logic [1:0]                 round_mode;  // rounding specifier
 } rs_entry_fpmul_t;
 
 typedef struct packed {
@@ -136,6 +160,9 @@ typedef struct packed {
     // flags (for ALU ops like ADDS, SUBS, CMP)
     logic                       update_nzcv;
     logic [3:0]                 nzcv;
+
+    // FPU flags
+    fpnew_pkg::status_t         fp_status;    // {NV, DZ, OF, UF, NX}
     
     // branch resolution (adder)
     logic                       br_valid;     // this is a branch result
@@ -198,6 +225,8 @@ typedef struct packed {
     logic fp_bit;
     logic set_flags;
     logic check_target;
+    logic [5:0] shift_amt;   // RR-format shifted-register: amount to pre-shift Vk
+    logic [1:0] shift_type;  // 00=LSL, 01=LSR, 10=ASR
 } uop_t;
 
 endpackage

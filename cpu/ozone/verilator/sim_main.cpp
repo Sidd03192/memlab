@@ -5,9 +5,32 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <iostream>
+#include <cstring>
+#include <cstdio>
+#include <set>
 
 #define DRAM_SPAN 0x40000000ULL // 1GB
 #define CSR_SPAN  0x00200000ULL // 2MB
+
+// Cache line size must match BLOCK_SIZE parameter in memory_subsystem (64 bytes)
+#define CACHE_LINE_BYTES 64
+#define CACHE_LINE_WORDS (CACHE_LINE_BYTES / 4)  // 16 x 32-bit words
+
+// Print one GPR entry: "X0 : 0x..." or "X10: 0x..."
+static void print_gpr(int idx, uint64_t val) {
+    if (idx < 10)
+        printf("X%-2d: 0x%016llx", idx, (unsigned long long)val);
+    else
+        printf("X%d: 0x%016llx", idx, (unsigned long long)val);
+}
+
+// Print one FPR entry
+static void print_fpr(int idx, uint64_t val) {
+    if (idx < 10)
+        printf("V%-2d: 0x%016llx", idx, (unsigned long long)val);
+    else
+        printf("V%d: 0x%016llx", idx, (unsigned long long)val);
+}
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
@@ -37,12 +60,21 @@ int main(int argc, char** argv) {
     bool host_has_asserted_reset = false;
     bool run_complete = false;
 
+    // Data memory response state (1-cycle read latency)
+    bool     dmem_resp_pending  = false;
+    uint32_t dmem_resp_paddr_r  = 0;
+    uint8_t  dmem_resp_data[CACHE_LINE_BYTES] = {};
+
+    // Track which 8-byte-aligned DRAM addresses were written back from L2
+    std::set<uint64_t> written_addrs;
+
     while (!Verilated::gotFinish()) {
         uint32_t host_reset = *(volatile uint32_t*)(csr_shm + 0x0);
 
         if (run_complete) {
             if (host_reset) {
                 run_complete = false;
+                written_addrs.clear();
             } else {
                 usleep(1000);
                 continue;
@@ -58,20 +90,55 @@ int main(int argc, char** argv) {
             host_has_asserted_reset = true;
         }
         top->reset = host_has_asserted_reset ? host_reset : 1;
-        
+
         if (host_reset && !last_reset) {
             std::cout << "[Verilator] Reset asserted by Host." << std::endl;
         }
         last_reset = host_reset;
 
-        // Handle Memory Read
+        // Instruction fetch memory read (combinational — set before posedge eval)
         if (top->mem_en) {
             if (top->mem_addr < DRAM_SPAN) {
                 top->mem_rdata = *(uint32_t*)(&dram_shm[top->mem_addr]);
             }
         }
 
+        // Data memory: deliver pending read response (1-cycle latency)
+        top->dmem_req_ready  = 1;
+        if (dmem_resp_pending) {
+            top->dmem_resp_valid = 1;
+            top->dmem_resp_paddr = dmem_resp_paddr_r;
+            for (int i = 0; i < CACHE_LINE_WORDS; i++)
+                top->dmem_resp_rdata[i] = *(uint32_t*)(&dmem_resp_data[i * 4]);
+        } else {
+            top->dmem_resp_valid = 0;
+        }
+
         top->eval();
+
+        // After posedge: sample data memory request for next cycle
+        dmem_resp_pending = false;
+        if (top->dmem_req_valid) {
+            uint64_t paddr = (uint64_t)top->dmem_req_addr;
+            if (top->dmem_req_is_write) {
+                // Write cache line to DRAM (no response needed)
+                if (paddr + CACHE_LINE_BYTES <= DRAM_SPAN) {
+                    for (int i = 0; i < CACHE_LINE_WORDS; i++)
+                        *(uint32_t*)(&dram_shm[paddr + i * 4]) = top->dmem_req_wdata[i];
+                    // Record every 8-byte word in this line as modified
+                    for (int i = 0; i < CACHE_LINE_BYTES; i += 8)
+                        written_addrs.insert(paddr + i);
+                }
+            } else {
+                // Queue read response for next cycle
+                if (paddr + CACHE_LINE_BYTES <= DRAM_SPAN)
+                    memcpy(dmem_resp_data, &dram_shm[paddr], CACHE_LINE_BYTES);
+                else
+                    memset(dmem_resp_data, 0, CACHE_LINE_BYTES);
+                dmem_resp_paddr_r = (uint32_t)paddr;
+                dmem_resp_pending = true;
+            }
+        }
 
         // Sync State to SHM
         // Status (Offset 0x8)
@@ -82,8 +149,50 @@ int main(int argc, char** argv) {
             *(volatile uint64_t*)(csr_shm + 0x100 + (i * 8)) = top->x_regs[i];
         }
 
+        // FP Registers (Offset 0x200)
+        for (int i = 0; i < 32; i++) {
+            *(volatile uint64_t*)(csr_shm + 0x200 + (i * 8)) = top->fp_regs[i];
+        }
+
         if (top->done) {
-            std::cout << "[Verilator] Execution complete. X0=" << std::hex << top->x_regs[0] << std::endl;
+            printf("\n========== Final Architectural State ==========\n");
+            printf("PC:     0x0000000000000000\n");
+
+            printf("\nGeneral Purpose Registers:\n");
+            for (int i = 0; i < 31; i += 2) {
+                print_gpr(i, top->x_regs[i]);
+                if (i + 1 < 31) {
+                    printf("    ");
+                    print_gpr(i + 1, top->x_regs[i + 1]);
+                }
+                printf("\n");
+            }
+            // X30 is index 30 in x_regs (0..30)
+            print_gpr(30, top->x_regs[30]);
+            printf("\n");
+
+            printf("\nFloating Point Registers (64-bit):\n");
+            for (int i = 0; i < 32; i += 2) {
+                print_fpr(i, top->fp_regs[i]);
+                if (i + 1 < 32) {
+                    printf("    ");
+                    print_fpr(i + 1, top->fp_regs[i + 1]);
+                }
+                printf("\n");
+            }
+
+            // Modified memory: only L2 writebacks reach dram_shm.
+            // Stores still resident in L1/L2 at program end will NOT appear here.
+            printf("\nModified Memory (L2 writebacks only):\n");
+            for (uint64_t addr : written_addrs) {
+                uint64_t val = *(uint64_t*)(&dram_shm[addr]);
+                if (val != 0)
+                    printf("0x%016llx: 0x%016llx\n",
+                           (unsigned long long)addr,
+                           (unsigned long long)val);
+            }
+            printf("================================================\n\n");
+
             run_complete = true;
         }
 

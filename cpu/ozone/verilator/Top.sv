@@ -1,19 +1,32 @@
+`timescale 1ns/1ps
+
 module Top
   import ozone_pkg::*;
 (
     input clk,
     input reset,
 
-    // Simple Memory Interface
+    // Simple Memory Interface (instruction fetch)
     output reg [63:0] mem_addr,
     input      [31:0] mem_rdata,
     output reg        mem_en,
+
+    // Data Memory Interface (L2 cache-line miss port)
+    output logic                     dmem_req_valid,
+    output logic                     dmem_req_is_write,
+    output logic [29:0]              dmem_req_addr,
+    output logic [511:0]             dmem_req_wdata,
+    input  logic                     dmem_req_ready,
+    input  logic                     dmem_resp_valid,
+    input  logic [29:0]              dmem_resp_paddr,
+    input  logic [511:0]             dmem_resp_rdata,
 
     // Status
     output reg        done,
 
     // Register File (Exposed for testbench to copy to SHM)
-    output reg [63:0] x_regs [0:30]
+    output reg [63:0] x_regs [0:30],
+    output reg [63:0] fp_regs [0:31]
 );
 
     // Temporary bring-up switch: standalone Verilator tests currently expect
@@ -109,11 +122,21 @@ module Top
     logic             logic_alloc_valid, logic_full, logic_granted;
     rs_entry_t        logic_alloc_entry;
     logic             fpu_alloc_valid, fpu_full, fpu_granted;
-    rs_entry_fpmul_t  fpu_alloc_entry;
+    rs_entry_fp_t     fpu_alloc_entry;
     logic             agu_alloc_valid, agu_full, agu_granted;
     rs_entry_add_t    agu_alloc_entry;
 
-    cdb_broadcast_t adder_req, logic_req, fpu_req, agu_req, cdb_broadcast;
+    // LSQ dispatch wires
+    logic        lsq_alloc_valid;
+    logic [5:0]  lsq_rob_entry_id;
+    logic [5:0]  lsq_rob_wdata_entry_id;
+    logic [63:0] lsq_rob_wdata;
+    logic        lsq_rob_wdata_ready;
+    logic        lsq_is_load;
+    logic        lq_full, sq_full;
+
+    cdb_broadcast_t adder_req, logic_req, fpu_req, agu_req, lsq_req, cdb_broadcast;
+    logic           lsq_granted;
 
     assign halt_fetch = pipe_flush;
 
@@ -136,6 +159,7 @@ module Top
     ozone_decode decode (
         .clk          (clk),
         .rst          (reset),
+        .flush        (pipe_flush),
         .the_insn_bits(insn_bits),
         .the_insn_pc  (pc),
         .insn_ready   (insn_ready),
@@ -172,8 +196,8 @@ module Top
         .rob_src1_idx     (rob_src1_idx),
         .rob_src2_idx     (rob_src2_idx),
         .rob_src1_ready   (rob_src1_ready),
-        .rob_src2_ready   (rob_src2_ready),
         .rob_src1_val     (rob_src1_val),
+        .rob_src2_ready   (rob_src2_ready),
         .rob_src2_val     (rob_src2_val),
         .rob_alloc_valid  (rob_alloc_valid),
         .rob_alloc_has_dest(rob_alloc_has_dest),
@@ -191,7 +215,15 @@ module Top
         .fpu_full         (fpu_full),
         .agu_alloc_valid  (agu_alloc_valid),
         .agu_alloc_entry  (agu_alloc_entry),
-        .agu_full         (agu_full)
+        .agu_full         (agu_full),
+        .lsq_alloc_valid         (lsq_alloc_valid),
+        .lsq_rob_entry_id        (lsq_rob_entry_id),
+        .lsq_rob_wdata_entry_id  (lsq_rob_wdata_entry_id),
+        .lsq_rob_wdata           (lsq_rob_wdata),
+        .lsq_rob_wdata_ready     (lsq_rob_wdata_ready),
+        .lsq_is_load             (lsq_is_load),
+        .lq_full                 (lq_full),
+        .sq_full                 (sq_full)
     );
 
     ozone_regstate regstate (
@@ -307,7 +339,7 @@ module Top
         .cdb_granted(agu_granted)
     );
 
-    ozone_rs_fpmult fpu (
+    fpnew_top fpu (
         .clk        (clk),
         .rst_n      (rst_n),
         .flush      (pipe_flush),
@@ -319,17 +351,75 @@ module Top
         .cdb_granted(fpu_granted)
     );
 
+    memory_subsystem #(
+        .VA_WIDTH        (48),
+        .PA_WIDTH        (30),
+        .DATA_WIDTH      (64),
+        .BLOCK_SIZE      (64),
+        .LSQ_ENTRIES     (16),
+        .USE_AVALON_MEM  (1'b0),
+        .USE_IDENTITY_TLB(1'b1)
+    ) memsys (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        // trace port unused in Verilator sim
+        .trace_data         ('0),
+        .trace_addr         ('0),
+        .trace_data_chunk   ('0),
+        .trace_valid        (1'b0),
+        .trace_write        (1'b0),
+        .trace_ready        (),
+        // ROB dispatch
+        .rob_entry_id       (lsq_rob_entry_id),
+        .rob_wdata_entry_id (lsq_rob_wdata_entry_id),
+        .rob_wdata          (lsq_rob_wdata),
+        .rob_wdata_ready    (lsq_rob_wdata_ready),
+        .rob_is_load        (lsq_is_load),
+        .rob_valid_in       (lsq_alloc_valid),
+        // ROB control
+        .flush              (pipe_flush),
+        .commit_sq_head     (lsq_store_commit),
+        // To dispatch (stall)
+        .lq_full            (lq_full),
+        .sq_full            (sq_full),
+        // CDB
+        .cdb_in             (cdb_broadcast),
+        .cdb_out            (lsq_req),
+        .cdb_granted        (lsq_granted),
+        // L2 miss — physical memory interface
+        .mem_req_valid      (dmem_req_valid),
+        .mem_req_is_write   (dmem_req_is_write),
+        .mem_req_addr       (dmem_req_addr),
+        .mem_req_wdata      (dmem_req_wdata),
+        .mem_req_ready      (dmem_req_ready),
+        .mem_resp_valid     (dmem_resp_valid),
+        .mem_resp_paddr     (dmem_resp_paddr),
+        .mem_resp_rdata     (dmem_resp_rdata),
+        // Avalon unused
+        .avm_readdata       ('0),
+        .avm_readdatavalid  (1'b0),
+        .avm_waitrequest    (1'b0),
+        .avm_address        (),
+        .avm_burstcount     (),
+        .avm_read           (),
+        .avm_write          (),
+        .avm_writedata      (),
+        .avm_byteenable     ()
+    );
+
     ozone_cdb cdb (
         .adder_req    (adder_req),
         .logic_req    (logic_req),
         .fpu_req      (fpu_req),
         .mem_req      (agu_req),
+        .lsq_req      (lsq_req),
         .rob_head     (rob_head),
         .cdb_broadcast(cdb_broadcast),
         .adder_granted(adder_granted),
         .logic_granted(logic_granted),
         .fpu_granted  (fpu_granted),
-        .mem_granted  (agu_granted)
+        .mem_granted  (agu_granted),
+        .lsq_granted  (lsq_granted)
     );
 
     always @(posedge clk) begin
@@ -353,6 +443,7 @@ module Top
             itlb_flush      <= 1'b0;
             insn_ready      <= 1'b0;
             for (int i = 0; i < 31; i++) x_regs[i] <= 64'b0;
+            for (int i = 0; i < 32; i++) fp_regs[i] <= 64'b0;
 
             if (!reset_seen) begin
                 $display("Did reset!\n");
@@ -365,6 +456,10 @@ module Top
 
             if (commit_reg_en && commit_reg_addr != 5'd31) begin
                 x_regs[commit_reg_addr] <= commit_reg_value;
+            end
+
+            if (commit_fp_en) begin
+                fp_regs[commit_fp_addr] <= commit_fp_value;
             end
 
             if (rob_alloc_valid) begin

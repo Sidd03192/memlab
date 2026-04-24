@@ -68,14 +68,24 @@ module ozone_dispatch
     input  logic          logic_full,
 
     // ─── FPU RS ───────────────────────────────────────────────────────────
-    output logic            fpu_alloc_valid,
-    output rs_entry_fpmul_t fpu_alloc_entry,
-    input  logic            fpu_full,
+    output logic          fpu_alloc_valid,
+    output rs_entry_fp_t  fpu_alloc_entry,
+    input  logic          fpu_full,
 
     // ─── AGU RS ───────────────────────────────────────────────────────────
     output logic          agu_alloc_valid,
     output rs_entry_add_t agu_alloc_entry,
-    input  logic          agu_full
+    input  logic          agu_full,
+
+    // ─── LSQ dispatch ─────────────────────────────────────────────────────
+    output logic        lsq_alloc_valid,
+    output logic [5:0]  lsq_rob_entry_id,
+    output logic [5:0]  lsq_rob_wdata_entry_id,
+    output logic [63:0] lsq_rob_wdata,
+    output logic        lsq_rob_wdata_ready,
+    output logic        lsq_is_load,
+    input  logic        lq_full,
+    input  logic        sq_full
 );
 
 // ─── FSM ───────────────────────────────────────────────────────────────────
@@ -100,11 +110,14 @@ logic active;
 assign active = (state == DS_DISP1) || (state == DS_IDLE && uop_valid);
 
 // ─── regstate address outputs (always driven from cur) ────────────────────
+// For stores (UOP_WR): src2 port reads the store-data register (a) instead
+// of the c operand, since stores need 3 sources (base, offset, data) but
+// offset is always immediate for M-format, freeing the src2 slot.
 always_comb begin
     rst_src1_addr    = cur.b[4:0];
-    rst_src2_addr    = cur.c[4:0];
+    rst_src2_addr    = (cur.uop_type == UOP_WR) ? cur.a[4:0] : cur.c[4:0];
     rst_fp_src1_addr = cur.b[4:0];
-    rst_fp_src2_addr = cur.c[4:0];
+    rst_fp_src2_addr = (cur.uop_type == UOP_WR) ? cur.a[4:0] : cur.c[4:0];
 end
 
 // ─── source operand resolution: Vj/Qj (src1 = uop.b) ─────────────────────
@@ -115,19 +128,17 @@ reg_entry_t  src1_st;
 always_comb begin
     // Immediate branches use the instruction PC as their first operand so the
     // adder can form PC-relative targets.
-    if (cur.check_target && cur.imm_opnd) begin
-        src1_st      = '0;
-    end else if (cur.uop_type == UOP_COND_CHECK) begin
+    if (cur.uop_type == UOP_COND_CHECK) begin
         src1_st      = rst_nzcv_status;
+    end else if (cur.check_target && cur.imm_opnd && cur.b == 6'd32) begin
+        // Immediate branch with no register source (B/BL): Vj = PC
+        src1_st      = '0;
     end else begin
         src1_st      = cur.fp_bit ? rst_fp_src1_status : rst_src1_status;
     end
     rob_src1_idx = src1_st.rob_idx;
 
-    if (cur.check_target && cur.imm_opnd) begin
-        Vj = {16'b0, cur.pc};
-        Qj = 6'b0;
-    end else if (cur.uop_type == UOP_COND_CHECK) begin
+    if (cur.uop_type == UOP_COND_CHECK) begin
         // NZCV source: value lives in low 4 bits of nzcv_reg.value
         if (!src1_st.busy) begin
             Vj = {60'b0, src1_st.value[3:0]};
@@ -139,6 +150,10 @@ always_comb begin
             Vj = 64'b0;
             Qj = src1_st.rob_idx;
         end
+    end else if (cur.check_target && cur.imm_opnd && cur.b == 6'd32) begin
+        // B/BL: Vj = PC so adder computes PC + offset
+        Vj = {16'b0, cur.pc};
+        Qj = 6'b0;
     end else if (cur.b == 6'd32) begin
         // XZR or no source — always zero, no dependency
         Vj = 64'b0;
@@ -156,6 +171,10 @@ always_comb begin
 end
 
 // ─── source operand resolution: Vk/Qk (src2 = uop.c or immediate) ─────────
+// For UOP_WR (stores): src2_st was redirected above to hold store-data status.
+// The address offset is always an immediate (imm_opnd=1 for M-format), so
+// Vk=imm_bits and Qk=0 — the store-data register status in src2_st is only
+// consumed by the Vdata/Qdata block below.
 logic [63:0] Vk;
 logic [5:0]  Qk;
 reg_entry_t  src2_st;
@@ -183,6 +202,34 @@ always_comb begin
     end
 end
 
+// ─── store-data operand (Vdata/Qdata) — UOP_WR only ──────────────────────
+// src2_st was redirected to read the store-data register (a) for stores.
+// ROB forwarding reuses rob_src2_idx/rob_src2_val since imm_opnd=1 means
+// Qk=0 and the src2 ROB read is otherwise unused for stores.
+logic [63:0] Vdata;
+logic [5:0]  Qdata;
+
+always_comb begin
+    if (cur.uop_type == UOP_WR) begin
+        if (cur.a == 6'd32) begin
+            Vdata = 64'b0;
+            Qdata = 6'b0;
+        end else if (!src2_st.busy) begin
+            Vdata = src2_st.value;
+            Qdata = 6'b0;
+        end else if (rob_src2_ready) begin
+            Vdata = rob_src2_val;
+            Qdata = 6'b0;
+        end else begin
+            Vdata = 64'b0;
+            Qdata = src2_st.rob_idx;
+        end
+    end else begin
+        Vdata = 64'b0;
+        Qdata = 6'b0;
+    end
+end
+
 // ─── FU routing ───────────────────────────────────────────────────────────
 logic goes_adder, goes_logic, goes_fpu, goes_agu;
 
@@ -206,10 +253,12 @@ always_comb begin
 end
 
 logic target_full, stall, do_dispatch;
-assign target_full = (goes_adder && adder_full) ||
-                     (goes_logic && logic_full)  ||
-                     (goes_fpu   && fpu_full)    ||
-                     (goes_agu   && agu_full);
+assign target_full = (goes_adder && adder_full)                     ||
+                     (goes_logic && logic_full)                      ||
+                     (goes_fpu   && fpu_full)                        ||
+                     (goes_agu   && agu_full)                        ||
+                     (cur.uop_type == UOP_RD && lq_full)            ||
+                     (cur.uop_type == UOP_WR && sq_full);
 assign stall       = rob_full || target_full;
 assign do_dispatch = active && !stall;
 
@@ -218,10 +267,16 @@ adder_op_e adder_op;
 always_comb begin
     unique case (cur.uop_type)
         UOP_ADD: begin
-            if (cur.check_target)
-                adder_op = (cur.a == 6'd30) ? OP_BL : OP_B;
+            if (cur.check_target) begin
+                if (cur.imm_opnd && cur.b != 6'd32)
+                    // CBZ/CBNZ: b=Rt (register to test), imm_opnd=1 for absolute target
+                    adder_op = cur.neg_c_or_imm ? OP_CBNZ : OP_CBZ;
+                else
+                    // imm_opnd distinguishes BL (imm offset) from BLR (register target)
+                    adder_op = (cur.a == 6'd30 && !cur.imm_opnd) ? OP_BLR :
+                               (cur.a == 6'd30)                   ? OP_BL  : OP_B;
             // a==32 means no writeback (CMP / CMN)
-            else if (cur.a == 6'd32 && cur.set_flags)
+            end else if (cur.a == 6'd32 && cur.set_flags)
                 adder_op = cur.neg_c_or_imm ? OP_CMP : OP_CMN;
             else if (cur.neg_c_or_imm)
                 adder_op = cur.set_flags ? OP_SUBS : OP_SUB;
@@ -229,11 +284,9 @@ always_comb begin
                 adder_op = cur.set_flags ? OP_ADDS : OP_ADD;
         end
         UOP_COND_CHECK: adder_op = OP_BCOND;
-        // Shifter RS is a stub; shift uops fall back to the adder bus
-        // and will be handled when ozone_shifter is implemented.
-        UOP_LSL:        adder_op = OP_ADD;
-        UOP_LSR:        adder_op = OP_ADD;
-        UOP_ASR:        adder_op = OP_ADD;
+        UOP_LSL:        adder_op = OP_LSL;
+        UOP_LSR:        adder_op = OP_LSR;
+        UOP_ASR:        adder_op = OP_ASR;
         default:        adder_op = OP_ADD;
     endcase
 end
@@ -251,13 +304,16 @@ end
 // ─── ROB alloc ────────────────────────────────────────────────────────────
 always_comb begin
     rob_alloc_valid    = do_dispatch;
-    rob_alloc_has_dest = (cur.a != 6'd32);
+    // Stores (UOP_WR) write no architectural register — dest is NONE.
+    rob_alloc_has_dest = (cur.a != 6'd32) && (cur.uop_type != UOP_WR);
 
     rob_alloc_data             = '0;
     rob_alloc_data.PC          = {16'b0, cur.pc};
     rob_alloc_data.dest_reg    = cur.a[4:0];
-    rob_alloc_data.dest_type   = (cur.fp_bit && cur.a != 6'd32) ? DEST_FPR : DEST_GPR;
-    rob_alloc_data.alloc_has_dest = (cur.a != 6'd32);
+    rob_alloc_data.dest_type   = (cur.uop_type == UOP_WR) ? DEST_NONE :
+                                  (cur.a == 6'd32)         ? DEST_NONE :
+                                  (cur.fp_bit)             ? DEST_FPR  : DEST_GPR;
+    rob_alloc_data.alloc_has_dest = (cur.a != 6'd32) && (cur.uop_type != UOP_WR);
     rob_alloc_data.update_nzcv = cur.set_flags;
     rob_alloc_data.inst_type   =
         (cur.uop_type == UOP_RD)   ? ROB_TYPE_LOAD  :
@@ -275,16 +331,23 @@ always_comb begin
     adder_alloc_entry           = '0;
     adder_alloc_entry.valid     = 1'b1;
     adder_alloc_entry.rob_tag   = rob_alloc_idx;
-    adder_alloc_entry.Vj        = Vj;
-    adder_alloc_entry.Vk        = Vk;
+    adder_alloc_entry.Vj        = (adder_op == OP_BCOND) ? {16'b0, cur.pc} : Vj;
+    // BLR: Vj=reg_n (branch target), Vk carries PC+4 (return address).
+    // c=XZR so Vk/Qk were both 0; safe to override.
+    adder_alloc_entry.Vk        = (adder_op == OP_BLR) ? ({16'b0, cur.pc} + 64'd4) : Vk;
     adder_alloc_entry.Qj        = Qj;
-    adder_alloc_entry.Qk        = Qk;
-    adder_alloc_entry.op        = 6'(adder_op);
+    adder_alloc_entry.Qk        = (adder_op == OP_BLR) ? 6'b0 : Qk;
+    adder_alloc_entry.op        = adder_op;
     adder_alloc_entry.has_rd    = (cur.a != 6'd32);
     // B.cond: pass the condition code via branch_cond.
     // NOTE: uop_t has no cond_code field yet — imm_bits[3:0] is used as
     // a workaround until the decode is extended.
-    adder_alloc_entry.branch_cond = cond_code_e'(cur.imm_bits[3:0]);
+    adder_alloc_entry.branch_cond = (adder_op == OP_BCOND) ?
+                                    cond_code_e'(cur.c[3:0]) :
+                                    cond_code_e'(cur.imm_bits[3:0]);
+    adder_alloc_entry.nzcv        = (adder_op == OP_BCOND) ? Vj[3:0] : 4'b0;
+    adder_alloc_entry.shift_amt   = cur.shift_amt;
+    adder_alloc_entry.shift_type  = cur.shift_type;
 end
 
 // ─── Logic RS entry ───────────────────────────────────────────────────────
@@ -299,22 +362,46 @@ always_comb begin
     logic_alloc_entry.Qk           = Qk;
     logic_alloc_entry.op           = 6'(logic_op);
     logic_alloc_entry.updates_nzcv = cur.set_flags;
+    logic_alloc_entry.shift_amt    = cur.shift_amt;
+    logic_alloc_entry.shift_type   = cur.shift_type;
 end
 
 // ─── FPU RS entry ─────────────────────────────────────────────────────────
 always_comb begin
-    fpu_alloc_valid           = do_dispatch && goes_fpu;
-    fpu_alloc_entry           = '0;
-    fpu_alloc_entry.valid     = 1'b1;
-    fpu_alloc_entry.rob_tag   = rob_alloc_idx;
-    fpu_alloc_entry.Vj        = Vj;
-    fpu_alloc_entry.Vk        = Vk;
-    fpu_alloc_entry.Qj        = Qj;
-    fpu_alloc_entry.Qk        = Qk;
-    fpu_alloc_entry.round_mode = 2'b00; // round-to-nearest-even default
+    fpu_alloc_valid              = do_dispatch && goes_fpu;
+    fpu_alloc_entry              = '0;
+    fpu_alloc_entry.valid        = 1'b1;
+    fpu_alloc_entry.rob_tag      = rob_alloc_idx;
+    fpu_alloc_entry.Vj           = Vj;
+    fpu_alloc_entry.Vk           = Vk;
+    fpu_alloc_entry.Qj           = Qj;
+    fpu_alloc_entry.Qk           = Qk;
+    fpu_alloc_entry.rnd_mode     = fpnew_pkg::RNE;
+    fpu_alloc_entry.src_fmt      = fpnew_pkg::FP64;
+    fpu_alloc_entry.dst_fmt      = fpnew_pkg::FP64;
+    fpu_alloc_entry.int_fmt      = fpnew_pkg::INT64;
+    fpu_alloc_entry.vectorial_op = 1'b0;
+    // Map uop type to fpnew operation
+    unique case (cur.uop_type)
+        UOP_FADD: begin
+            fpu_alloc_entry.op     = fpnew_pkg::ADD;
+            fpu_alloc_entry.op_mod = cur.neg_c_or_imm; // 0=FADD, 1=FSUB
+        end
+        UOP_FMUL: begin
+            fpu_alloc_entry.op     = fpnew_pkg::MUL;
+            fpu_alloc_entry.op_mod = 1'b0;
+        end
+        default: begin  // UOP_NAN_CHECK (FCMP path)
+            fpu_alloc_entry.op     = fpnew_pkg::CLASSIFY;
+            fpu_alloc_entry.op_mod = 1'b0;
+        end
+    endcase
 end
 
 // ─── AGU RS entry ─────────────────────────────────────────────────────────
+// For UOP_RD/WR: Vj=base, Vk=offset (always imm), rob_tag = this instruction's
+// ROB entry.  The LSQ is dispatched simultaneously with the same rob_tag so it
+// can match the AGU's EA broadcast on the CDB.
 always_comb begin
     agu_alloc_valid           = do_dispatch && goes_agu;
     agu_alloc_entry           = '0;
@@ -325,19 +412,33 @@ always_comb begin
     agu_alloc_entry.Qj        = Qj;
     agu_alloc_entry.Qk        = Qk;
     agu_alloc_entry.has_rd    = (cur.a != 6'd32);
-    agu_alloc_entry.op        = (cur.uop_type == UOP_WR) ? 6'(OP_SUB) : 6'(OP_ADD);
+    agu_alloc_entry.op        = OP_ADD;
+end
+
+// ─── LSQ dispatch ─────────────────────────────────────────────────────────
+always_comb begin
+    lsq_alloc_valid        = do_dispatch &&
+                             (cur.uop_type == UOP_RD || cur.uop_type == UOP_WR);
+    lsq_is_load            = (cur.uop_type == UOP_RD);
+    lsq_rob_entry_id       = rob_alloc_idx;
+    // Store wdata: Vdata/Qdata resolved from the store-data register (a).
+    lsq_rob_wdata_entry_id = Qdata;
+    lsq_rob_wdata          = Vdata;
+    lsq_rob_wdata_ready    = (cur.uop_type == UOP_WR) && (Qdata == 6'b0);
 end
 
 // ─── regstate writes ─────────────────────────────────────────────────────
 always_comb begin
-    // GPR: mark dest busy (skip XZR=32 and SP=31 which regstate guards too)
+    // GPR: mark dest busy (skip XZR=32, SP=31, and stores which write no reg)
     rst_wr_en    = do_dispatch && !cur.fp_bit &&
-                   (cur.a != 6'd32) && (cur.a != 6'd31);
+                   (cur.a != 6'd32) && (cur.a != 6'd31) &&
+                   (cur.uop_type != UOP_WR);
     rst_wr_addr  = cur.a[4:0];
     rst_rob_idx  = rob_alloc_idx;
 
     // FPR: mark dest busy
-    rst_fp_wr_en    = do_dispatch && cur.fp_bit && (cur.a != 6'd32);
+    rst_fp_wr_en    = do_dispatch && cur.fp_bit && (cur.a != 6'd32) &&
+                      (cur.uop_type != UOP_WR);
     rst_fp_wr_addr  = cur.a[4:0];
     rst_fp_rob_idx  = rob_alloc_idx;
 

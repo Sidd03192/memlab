@@ -88,7 +88,17 @@ module ozone_logic
   logic        logic_exc;
   logic [7:0]  logic_exc_code;
 
+  // Pre-shifted second operand for shifted-register logical instructions.
+  logic [63:0] vk_shifted;
+
   always_comb begin
+    // Pre-shift Vk (shift_amt==0 with shift_type==LSL is a no-op identity).
+    case (issue_entry.shift_type)
+      2'b00: vk_shifted = issue_entry.Vk << issue_entry.shift_amt;
+      2'b01: vk_shifted = issue_entry.Vk >> issue_entry.shift_amt;
+      2'b10: vk_shifted = $unsigned($signed(issue_entry.Vk) >>> issue_entry.shift_amt);
+      default: vk_shifted = issue_entry.Vk;
+    endcase
 
     logic_result      = issue_entry.Vj;
     logic_value_valid = 1'b1;
@@ -102,28 +112,27 @@ module ozone_logic
 
     case (issue_entry.op)
       OP_AND: begin
-        logic_result = issue_entry.Vj & issue_entry.Vk;
+        logic_result = issue_entry.Vj & vk_shifted;
       end
 
       OP_ORR: begin
-        logic_result = issue_entry.Vj | issue_entry.Vk;
+        logic_result = issue_entry.Vj | vk_shifted;
       end
 
       OP_EOR: begin
-        logic_result = issue_entry.Vj ^ issue_entry.Vk;
+        logic_result = issue_entry.Vj ^ vk_shifted;
       end
 
       OP_ORN: begin
-        logic_result = issue_entry.Vj | (~issue_entry.Vk);
+        logic_result = issue_entry.Vj | (~vk_shifted);
       end
 
       OP_MVN: begin
-        // Source operand goes in Vk 
-        logic_result = ~issue_entry.Vk;
+        logic_result = ~vk_shifted;
       end
 
       OP_ANDS: begin
-        logic_result      = issue_entry.Vj & issue_entry.Vk;
+        logic_result      = issue_entry.Vj & vk_shifted;
         logic_flags_valid = 1'b1;
         logic_nzcv[3]     = logic_result[63];        // N
         logic_nzcv[2]     = (logic_result == 64'b0); // Z
@@ -132,7 +141,7 @@ module ozone_logic
       end
 
       OP_TST: begin
-        logic_result      = issue_entry.Vj & issue_entry.Vk;
+        logic_result      = issue_entry.Vj & vk_shifted;
         logic_value_valid = 1'b0;
         logic_flags_valid = 1'b1;
         logic_nzcv[3]     = logic_result[63];        // N
