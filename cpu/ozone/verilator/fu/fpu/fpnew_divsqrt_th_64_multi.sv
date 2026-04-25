@@ -169,36 +169,31 @@ module fpnew_divsqrt_th_64_multi #(
   // -----------------
   logic [3:0] divsqrt_fmt;
 
-  // Translate fpnew formats into divsqrt formats
-  if(WIDTH == 64) begin : translate_fmt_64_bits
-    always_comb begin : translate_fmt
-      unique case (dst_fmt_q)
+  // Translate fpnew formats into divsqrt formats.
+  always_comb begin : translate_fmt
+    divsqrt_fmt = 4'b0010;
+    if (WIDTH == 64) begin
+      case (dst_fmt_q)
         fpnew_pkg::FP64:    divsqrt_fmt = 4'b1000;
         fpnew_pkg::FP32:    divsqrt_fmt = 4'b0100;
         fpnew_pkg::FP16:    divsqrt_fmt = 4'b0010;
         fpnew_pkg::FP16ALT: divsqrt_fmt = 4'b0001;
         default:            divsqrt_fmt = 4'b1000; // 64 bit max width
       endcase
-    end
-  end else if(WIDTH == 32) begin : translate_fmt_32_bits
-    always_comb begin : translate_fmt
-      unique case (dst_fmt_q)
+    end else if (WIDTH == 32) begin
+      case (dst_fmt_q)
         fpnew_pkg::FP32:    divsqrt_fmt = 4'b0100;
         fpnew_pkg::FP16:    divsqrt_fmt = 4'b0010;
         fpnew_pkg::FP16ALT: divsqrt_fmt = 4'b0001;
         default:            divsqrt_fmt = 4'b0100; // 32 bit max width
       endcase
-    end
-  end else if(WIDTH == 16) begin : translate_fmt_16_bits
-    always_comb begin : translate_fmt
-      unique case (dst_fmt_q)
+    end else begin
+      case (dst_fmt_q)
         fpnew_pkg::FP16:    divsqrt_fmt = 4'b0010;
         fpnew_pkg::FP16ALT: divsqrt_fmt = 4'b0001;
         default:            divsqrt_fmt = 4'b0010; // 16 bit max width
       endcase
     end
-  end else begin : unsupported_width
-    // Unsupported parameterization; leave this generate branch empty for synthesis parsers.
   end
 
   // ------------
