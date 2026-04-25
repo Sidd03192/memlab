@@ -27,7 +27,8 @@
   end
 `define FFLARNC(q, d, load, arst, rst_val, clk, rstn) \
   always @(posedge clk or negedge rstn or posedge arst) begin \
-    if (!rstn || arst) q <= rst_val; \
+    if (!rstn) q <= rst_val; \
+    else if (arst) q <= rst_val; \
     else if (load) q <= d; \
   end
 `define FFLNR(q, d, load, clk) \
