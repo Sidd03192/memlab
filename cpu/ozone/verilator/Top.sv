@@ -162,6 +162,8 @@ module Top
     rs_entry_fp_t     fpu_alloc_entry;
     logic             agu_alloc_valid, agu_full, agu_granted;
     rs_entry_add_t    agu_alloc_entry;
+    logic             shifter_alloc_valid, shifter_full, shifter_granted;
+    rs_entry_t        shifter_alloc_entry;
 
     // LSQ dispatch wires
     logic        lsq_alloc_valid;
@@ -178,7 +180,7 @@ module Top
     logic        fetch_zero_pending;
     logic [3:0]  fetch_zero_wait;
 
-    cdb_broadcast_t adder_req, logic_req, fpu_req, agu_req, lsq_req, cdb_broadcast;
+    cdb_broadcast_t adder_req, logic_req, fpu_req, agu_req, lsq_req, shifter_req, cdb_broadcast;
     logic           lsq_granted;
     logic           core_flush;
     logic           ret_zero_redirect;
@@ -304,6 +306,9 @@ module Top
         .agu_alloc_valid  (agu_alloc_valid),
         .agu_alloc_entry  (agu_alloc_entry),
         .agu_full         (agu_full),
+        .shifter_alloc_valid(shifter_alloc_valid),
+        .shifter_alloc_entry(shifter_alloc_entry),
+        .shifter_full       (shifter_full),
         .lsq_alloc_valid         (lsq_alloc_valid),
         .lsq_rob_entry_id        (lsq_rob_entry_id),
         .lsq_rob_wdata_entry_id  (lsq_rob_wdata_entry_id),
@@ -417,6 +422,18 @@ module Top
         .cdb_granted(logic_granted)
     );
 
+    ozone_shifter shifter_fu (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .flush      (core_flush),
+        .alloc_valid(shifter_alloc_valid),
+        .alloc_entry(shifter_alloc_entry),
+        .full       (shifter_full),
+        .cdb_in     (cdb_broadcast),
+        .cdb_out    (shifter_req),
+        .cdb_granted(shifter_granted)
+    );
+
     ozone_agu agu (
         .clk        (clk),
         .rst_n      (rst_n),
@@ -512,18 +529,20 @@ module Top
     );
 
     ozone_cdb cdb (
-        .adder_req    (adder_req),
-        .logic_req    (logic_req),
-        .fpu_req      (fpu_req),
-        .mem_req      (agu_req),
-        .lsq_req      (lsq_req),
-        .rob_head     (rob_head),
-        .cdb_broadcast(cdb_broadcast),
-        .adder_granted(adder_granted),
-        .logic_granted(logic_granted),
-        .fpu_granted  (fpu_granted),
-        .mem_granted  (agu_granted),
-        .lsq_granted  (lsq_granted)
+        .adder_req      (adder_req),
+        .logic_req      (logic_req),
+        .fpu_req        (fpu_req),
+        .mem_req        (agu_req),
+        .lsq_req        (lsq_req),
+        .shifter_req    (shifter_req),
+        .rob_head       (rob_head),
+        .cdb_broadcast  (cdb_broadcast),
+        .adder_granted  (adder_granted),
+        .logic_granted  (logic_granted),
+        .fpu_granted    (fpu_granted),
+        .mem_granted    (agu_granted),
+        .lsq_granted    (lsq_granted),
+        .shifter_granted(shifter_granted)
     );
 
     always @(posedge clk) begin

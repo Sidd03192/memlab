@@ -78,6 +78,11 @@ module ozone_dispatch
     output rs_entry_add_t agu_alloc_entry,
     input  logic          agu_full,
 
+    // ─── Shifter RS ───────────────────────────────────────────────────────
+    output logic          shifter_alloc_valid,
+    output rs_entry_t     shifter_alloc_entry,
+    input  logic          shifter_full,
+
     // ─── LSQ dispatch ─────────────────────────────────────────────────────
     output logic        lsq_alloc_valid,
     output logic [5:0]  lsq_rob_entry_id,
@@ -265,14 +270,14 @@ always_comb begin
 end
 
 // ─── FU routing ───────────────────────────────────────────────────────────
-logic goes_adder, goes_logic, goes_fpu, goes_agu;
+logic goes_adder, goes_logic, goes_fpu, goes_agu, goes_shifter;
 
 always_comb begin
-    goes_adder = (cur.uop_type == UOP_ADD)        ||
-                 (cur.uop_type == UOP_COND_CHECK)  ||
-                 (cur.uop_type == UOP_LSL)          ||
-                 (cur.uop_type == UOP_LSR)          ||
-                 (cur.uop_type == UOP_ASR);
+    goes_adder   = (cur.uop_type == UOP_ADD)       ||
+                   (cur.uop_type == UOP_COND_CHECK);
+    goes_shifter = (cur.uop_type == UOP_LSL)        ||
+                   (cur.uop_type == UOP_LSR)        ||
+                   (cur.uop_type == UOP_ASR);
     goes_logic = (cur.uop_type == UOP_AND) ||
                  (cur.uop_type == UOP_OR)  ||
                  (cur.uop_type == UOP_XOR);
@@ -287,10 +292,11 @@ always_comb begin
 end
 
 logic target_full, stall, do_dispatch;
-assign target_full = (goes_adder && adder_full)                     ||
-                     (goes_logic && logic_full)                      ||
-                     (goes_fpu   && fpu_full)                        ||
-                     (goes_agu   && agu_full)                        ||
+assign target_full = (goes_adder   && adder_full)                   ||
+                     (goes_shifter && shifter_full)                  ||
+                     (goes_logic   && logic_full)                    ||
+                     (goes_fpu     && fpu_full)                      ||
+                     (goes_agu     && agu_full)                      ||
                      (cur.uop_type == UOP_RD && lq_full)            ||
                      (cur.uop_type == UOP_WR && sq_full);
 assign stall       = rob_full || target_full;
@@ -465,6 +471,20 @@ always_comb begin
     agu_alloc_entry.Qk        = Qk;
     agu_alloc_entry.has_rd    = (cur.a != 6'd32);
     agu_alloc_entry.op        = OP_ADD;
+end
+
+// ─── Shifter RS entry ─────────────────────────────────────────────────────
+always_comb begin
+    shifter_alloc_valid              = do_dispatch && goes_shifter;
+    shifter_alloc_entry              = '0;
+    shifter_alloc_entry.valid        = 1'b1;
+    shifter_alloc_entry.rob_tag      = rob_alloc_idx;
+    shifter_alloc_entry.Vj           = Vj;
+    shifter_alloc_entry.Vk           = Vk;
+    shifter_alloc_entry.Qj           = Qj;
+    shifter_alloc_entry.Qk           = Qk;
+    shifter_alloc_entry.op           = 6'(adder_op);
+    shifter_alloc_entry.updates_nzcv = cur.set_flags;
 end
 
 // ─── LSQ dispatch ─────────────────────────────────────────────────────────

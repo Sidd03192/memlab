@@ -21,7 +21,7 @@ FILES = types.sv \
 	fu/fpu/fpnew_top.sv \
 	../../../mem_pkg.sv \
 	../../../ooo_pkg.sv \
-	../../../barrel_shifter.sv \
+	fu/barrel_shifter.sv \
 	../../../tlb.sv \
 	../../../lsq.sv \
 	../../../l1_cache.sv \
@@ -39,6 +39,7 @@ FILES = types.sv \
 	fu/ozone_adder.sv \
 	fu/ozone_logic.sv \
 	fu/ozone_agu.sv \
+	fu/ozone_shifter.sv \
 	ozone_cdb.sv
 
 all: obj_dir/VTop

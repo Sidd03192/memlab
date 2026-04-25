@@ -66,6 +66,33 @@ module ozone_shifter
   end
 
   // -------------------------------------------------------
+  // Barrel Shifter op encoding:
+  //   op_in[2] = direction  (1=left,  0=right)
+  //   op_in[1] = rotate     (0 for all pipeline shifts)
+  //   op_in[0] = arithmetic (1 for ASR)
+  // -------------------------------------------------------
+  logic [2:0]  bs_op;
+  logic [63:0] bs_result;
+
+  always_comb begin
+    case (issue_entry.op)
+      6'(OP_LSL): bs_op = 3'b100;  // left,  logical
+      6'(OP_LSR): bs_op = 3'b000;  // right, logical
+      6'(OP_ASR): bs_op = 3'b001;  // right, arithmetic
+      default:    bs_op = 3'b000;
+    endcase
+  end
+
+  barrelshifter #(.D_SIZE(64)) bs (
+    .x_in  (issue_entry.Vj),
+    .s_in  (issue_entry.Vk[5:0]),
+    .op_in (bs_op),
+    .y_out (bs_result),
+    .zf_out(),
+    .vf_out()
+  );
+
+  // -------------------------------------------------------
   // Shifter
   // -------------------------------------------------------
   logic [63:0] shift_result;
@@ -76,33 +103,28 @@ module ozone_shifter
 
   always_comb begin
     shift_amt         = issue_entry.Vk[5:0];
-    shift_result      = issue_entry.Vj;
+    shift_result      = bs_result;
     carry_out         = 1'b0;
     shift_nzcv        = 4'b0;
     shift_flags_valid = issue_entry.updates_nzcv;
 
     case (issue_entry.op)
-      OP_LSL: begin
-        shift_result = issue_entry.Vj << shift_amt;
+      6'(OP_LSL): begin
         if (shift_amt != 6'd0)
-          carry_out = issue_entry.Vj[64 - shift_amt];
+          carry_out = issue_entry.Vj[7'd64 - {1'b0, shift_amt}];
       end
 
-      OP_LSR: begin
-        shift_result = issue_entry.Vj >> shift_amt;
+      6'(OP_LSR): begin
         if (shift_amt != 6'd0)
           carry_out = issue_entry.Vj[shift_amt - 1'b1];
       end
 
-      OP_ASR: begin
-        shift_result = $signed(issue_entry.Vj) >>> shift_amt;
+      6'(OP_ASR): begin
         if (shift_amt != 6'd0)
           carry_out = issue_entry.Vj[shift_amt - 1'b1];
       end
 
-      default: begin
-        shift_result = issue_entry.Vj;
-      end
+      default: ;
     endcase
 
     // Only the carry bit is meaningful for shifter-generated flags.
