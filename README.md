@@ -52,3 +52,15 @@ This script automates the verification process by checking that the RTL implemen
 - [x] Make it so writing a terminate value to the special-purpose register `ACTLR_EL1` causes the processor to enter a low power state. This will be tested by either placing a finger on the FPGA to see if it's hot, or seeing whether a core is being hogged by Verilator.
 - [ ] Make your front end 2-way superscalar, and beef up your back end so that it has the capacity to handle this without stalling uselessly.
 - [x] Add the `SVC` instruction, and use a particular value to do clean termination, rather than using just a segfault. You should be able to differentiate between a segfault termination and an `SVC` termination. Effectively, this is implementing a sycall. Syscalls with different numbers should fail with a completely different error (in a different exception handler).
+
+
+### New `5_*` Tests Added
+The six new tests are in `cpu/ozone/testcases/src`:
+
+- `5_branch_mix.s`: Mixed taken/not-taken branch loop that alternates add/sub behavior and stresses conditional control flow.
+- `5_branch_mix.s`: Mixed taken/not-taken branch loop (+odd/−even accumulation) followed by floating-point ops (`FADD`, `FSUB`) and `SVC #0` termination.
+- `5_call_chain.s`: Nested `BL`/`RET` call chain with stack save/restore of link and callee-saved registers.
+- `5_mem_stride_sum.s`: Stack-based `STUR`/`LDUR` reverse-order integer sum plus floating-point ops (`FADD`, `FMUL`) and `SVC #0` termination.
+- `5_shift_bitops.s`: Integer shift/bitwise datapath checks (`LSR`, `ASR`, `EOR`, `AND`) plus floating-point ops (`FADD`, `FNEG`) and `SVC #0` termination.
+- `5_store_page_fault.s`: Intentional EL0 store to unmapped VA (0x0) to validate store page-fault exception path.
+- `5_svc_select.s`: Branch-selected syscall path that can exercise different `SVC` numbers/handlers.

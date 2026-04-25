@@ -8,7 +8,7 @@ CAPSTONE_INC=$(CAPSTONE_DIR)/include
 TEST_SRC_DIR=testcases/src
 TEST_BIN_DIR=testcases/bin
 
-BASE_TEST_SRCS=$(wildcard $(TEST_SRC_DIR)/[0-4]_*.s) $(TEST_SRC_DIR)/3_page_fault.s
+BASE_TEST_SRCS=$(wildcard $(TEST_SRC_DIR)/[0-5]_*.s) $(TEST_SRC_DIR)/3_page_fault.s
 STANDALONE_BINS=$(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/%.elf, $(BASE_TEST_SRCS))
 EL1_BINS=$(patsubst $(TEST_SRC_DIR)/%.s, $(TEST_BIN_DIR)/el1_%.elf, $(BASE_TEST_SRCS))
 
