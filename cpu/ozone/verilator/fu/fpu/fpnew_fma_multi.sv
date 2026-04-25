@@ -62,6 +62,12 @@ module fpnew_fma_multi #(
   output logic                        early_out_valid_o
 );
 
+  // Generate loop indices
+  genvar i;
+  genvar fmt;
+  genvar op;
+
+
   // ----------
   // Constants
   // ----------
@@ -150,7 +156,7 @@ module fpnew_fma_multi #(
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
+  for (i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -192,7 +198,7 @@ module fpnew_fma_multi #(
 
   // FP Input initialization
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : fmt_init_inputs
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : fmt_init_inputs
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -211,7 +217,7 @@ module fpnew_fma_multi #(
         .is_boxed_i ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt] ),
         .info_o     ( info_q[fmt]                            )
       );
-      for (genvar op = 0; op < 3; op++) begin : gen_operands
+      for (op = 0; op < 3; op++) begin : gen_operands
         assign trimmed_ops[op]       = operands_q[op][FP_WIDTH-1:0];
         assign fmt_sign[fmt][op]     = operands_q[op][FP_WIDTH-1];
         assign fmt_exponent[fmt][op] = $signed({1'b0, operands_q[op][MAN_BITS+:EXP_BITS]});
@@ -312,7 +318,7 @@ module fpnew_fma_multi #(
 
 
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_special_results
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_special_results
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -589,7 +595,7 @@ module fpnew_fma_multi #(
 
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
+  for (i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -744,7 +750,7 @@ module fpnew_fma_multi #(
 
   // Pack exponent and mantissa into proper rounding form
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_res_assemble
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_res_assemble
     // Set up some constants
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -801,7 +807,7 @@ module fpnew_fma_multi #(
   logic [NUM_FORMATS-1:0][WIDTH-1:0] fmt_result;
 
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_sign_inject
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_sign_inject
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -878,7 +884,7 @@ module fpnew_fma_multi #(
   assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
+  for (i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:

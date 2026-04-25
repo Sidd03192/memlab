@@ -62,6 +62,10 @@ module fpnew_opgroup_block #(
   output logic                                    early_valid_o
 );
 
+  // Generate loop indices
+  genvar fmt;
+
+
   // ----------------
   // Type Definition
   // ----------------
@@ -86,7 +90,7 @@ module fpnew_opgroup_block #(
   // Generate Parallel Slices
   // -------------------------
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_parallel_slices
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_parallel_slices
     // Some constants for this format
     localparam logic ANY_MERGED = fpnew_pkg::any_enabled_multi(FmtUnitTypes, FpFmtMask);
     localparam logic IS_FIRST_MERGED =

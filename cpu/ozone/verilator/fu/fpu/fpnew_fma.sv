@@ -58,6 +58,10 @@ module fpnew_fma #(
   output logic                     early_out_valid_o
 );
 
+  // Generate loop indices
+  genvar i;
+
+
   // ----------
   // Constants
   // ----------
@@ -131,7 +135,7 @@ module fpnew_fma #(
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
+  for (i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -454,7 +458,7 @@ module fpnew_fma #(
 
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
+  for (i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -676,7 +680,7 @@ module fpnew_fma #(
   assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
+  for (i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:

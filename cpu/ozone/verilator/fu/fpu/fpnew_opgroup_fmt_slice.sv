@@ -60,6 +60,10 @@ module fpnew_opgroup_fmt_slice #(
   output logic                              early_out_valid_o
 );
 
+  // Generate loop indices
+  genvar lane;
+
+
   localparam int unsigned FP_WIDTH  = fpnew_pkg::fp_width(FpFormat);
   localparam int unsigned SIMD_WIDTH = $unsigned(Width/NUM_LANES);
 
@@ -90,7 +94,7 @@ module fpnew_opgroup_fmt_slice #(
   // Generate Lanes
   // ---------------
   generate
-  for (genvar lane = 0; lane < NUM_LANES; lane++) begin : gen_num_lanes
+  for (lane = 0; lane < NUM_LANES; lane++) begin : gen_num_lanes
     logic [FP_WIDTH-1:0] local_result; // lane-local results
     logic                local_sign;
 

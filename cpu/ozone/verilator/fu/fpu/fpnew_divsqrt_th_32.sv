@@ -62,6 +62,10 @@ module fpnew_divsqrt_th_32 #(
   output logic                        early_out_valid_o
 );
 
+  // Generate loop indices
+  genvar i;
+
+
   // ----------
   // Constants
   // ----------
@@ -109,7 +113,7 @@ module fpnew_divsqrt_th_32 #(
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
+  for (i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -452,7 +456,7 @@ module fpnew_divsqrt_th_32 #(
   assign out_ready = out_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
+  for (i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:

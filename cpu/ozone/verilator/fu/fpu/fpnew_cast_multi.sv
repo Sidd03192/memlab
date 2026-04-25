@@ -65,6 +65,12 @@ module fpnew_cast_multi #(
   output logic                   early_out_valid_o
 );
 
+  // Generate loop indices
+  genvar i;
+  genvar fmt;
+  genvar ifmt;
+
+
   // ----------
   // Constants
   // ----------
@@ -146,7 +152,7 @@ module fpnew_cast_multi #(
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
+  for (i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -202,7 +208,7 @@ module fpnew_cast_multi #(
 
   // FP Input initialization
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : fmt_init_inputs
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : fmt_init_inputs
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -238,7 +244,7 @@ module fpnew_cast_multi #(
 
   // Sign-extend INT input
   generate
-  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_sign_extend_int
+  for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_sign_extend_int
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -377,7 +383,7 @@ module fpnew_cast_multi #(
 
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
+  for (i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -535,7 +541,7 @@ module fpnew_cast_multi #(
 
   // Pack exponent and mantissa into proper rounding form
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_res_assemble
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_res_assemble
     // Set up some constants
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -552,7 +558,7 @@ module fpnew_cast_multi #(
 
   // Zero-extend integer result
   generate
-  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_res_zero_ext
+  for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_res_zero_ext
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -588,7 +594,7 @@ module fpnew_cast_multi #(
 
   // Detect overflows and inject sign
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_sign_inject
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_sign_inject
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -619,7 +625,7 @@ module fpnew_cast_multi #(
 
     // Sign-extend integer result
   generate
-  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_res_sign_ext
+  for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_res_sign_ext
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -640,7 +646,7 @@ module fpnew_cast_multi #(
 
   // Detect integer overflows after rounding (only positives)
   generate
-  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_overflow
+  for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_overflow
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -674,7 +680,7 @@ module fpnew_cast_multi #(
 
   // Special result construction
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_special_results
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_special_results
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -722,7 +728,7 @@ module fpnew_cast_multi #(
 
   // Special result construction
   generate
-  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_special_results_int
+  for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_special_results_int
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -818,7 +824,7 @@ module fpnew_cast_multi #(
   assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
+  for (i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:

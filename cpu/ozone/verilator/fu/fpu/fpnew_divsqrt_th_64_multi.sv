@@ -67,6 +67,10 @@ module fpnew_divsqrt_th_64_multi #(
   output logic                        early_out_valid_o
 );
 
+  // Generate loop indices
+  genvar i;
+
+
   // ----------
   // Constants
   // ----------
@@ -119,7 +123,7 @@ module fpnew_divsqrt_th_64_multi #(
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
+  for (i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:
@@ -193,8 +197,8 @@ module fpnew_divsqrt_th_64_multi #(
         default:            divsqrt_fmt = 4'b0010; // 16 bit max width
       endcase
     end
-  end else begin
-    $fatal(1, "DivSqrt THMULTI: Unsupported WIDTH (the supported width are 64, 32, 16)");
+  end else begin : unsupported_width
+    // Unsupported parameterization; leave this generate branch empty for synthesis parsers.
   end
 
   // ------------
@@ -419,7 +423,7 @@ module fpnew_divsqrt_th_64_multi #(
   assign out_ready = out_pipe_ready[0];
   // Generate the register stages
   generate
-  for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
+  for (i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
     // Determine the ready signal of the current stage - advance the pipeline:

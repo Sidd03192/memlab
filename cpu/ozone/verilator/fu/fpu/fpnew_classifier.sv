@@ -24,6 +24,10 @@ module fpnew_classifier #(
   output fpnew_pkg::fp_info_t [NumOperands-1:0]            info_o
 );
 
+  // Generate loop indices
+  genvar op;
+
+
   localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(FpFormat);
   localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(FpFormat);
 
@@ -36,7 +40,7 @@ module fpnew_classifier #(
 
   // Iterate through all operands
   generate
-  for (genvar op = 0; op < NumOperands; op++) begin : gen_num_values
+  for (op = 0; op < NumOperands; op++) begin : gen_num_values
 
     fp_t value;
     logic is_boxed;

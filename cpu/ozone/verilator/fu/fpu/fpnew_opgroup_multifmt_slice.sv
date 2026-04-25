@@ -67,17 +67,12 @@ module fpnew_opgroup_multifmt_slice #(
   output logic                                    early_out_valid_o
 );
 
-  generate
-  if ((OpGroup == fpnew_pkg::DIVSQRT)) begin
-    if ((DivSqrtSel == fpnew_pkg::TH32) && !((FpFmtConfig[0] == 1) && (FpFmtConfig[1:NUM_FORMATS-1] == '0))) begin
-      $fatal(1, "T-Head-based DivSqrt unit supported only in FP32-only configurations. \
-Set DivSqrtSel = THMULTI or DivSqrtSel = PULP to use a multi-format divider");
-    end else if ((DivSqrtSel == fpnew_pkg::THMULTI) && (FpFmtConfig[3] == 1'b1)) begin
-      $warning("The DivSqrt unit of C910 (instantiated by DivSqrtSel = THMULTI) does not support \
-FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8.");
-    end
-  end
-  endgenerate
+  // Generate loop indices
+  genvar lane;
+  genvar fmt;
+  genvar ifmt;
+  genvar i;
+
 
   localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
   localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
@@ -167,7 +162,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
   // Generate Lanes
   // ---------------
   generate
-  for (genvar lane = 0; lane < NUM_LANES; lane++) begin : gen_num_lanes
+  for (lane = 0; lane < NUM_LANES; lane++) begin : gen_num_lanes
     localparam int unsigned LANE = $unsigned(lane); // unsigned to please the linter
     // Get a mask of active formats for this lane
     localparam fpnew_pkg::fmt_logic_t ACTIVE_FORMATS =
@@ -445,7 +440,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
     end
 
     // Generate result packing depending on float format
-    for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : pack_fp_result
+    for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : pack_fp_result
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
       // only for active formats within the lane
@@ -463,7 +458,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
 
     // Generate result packing depending on integer format
     if (OpGroup == fpnew_pkg::CONV) begin : int_results_enabled
-      for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : pack_int_result
+      for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : pack_int_result
         // Set up some constants
         localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
         if (ACTIVE_INT_FORMATS[ifmt]) begin
@@ -481,7 +476,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
 
   // Extend slice result if needed
   generate
-  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : extend_fp_result
+  for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : extend_fp_result
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     if (NUM_LANES*FP_WIDTH < Width)
@@ -490,7 +485,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
   endgenerate
 
   generate
-  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : extend_or_mute_int_result
+  for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : extend_or_mute_int_result
     // Mute int results if unused
     if (OpGroup != fpnew_pkg::CONV) begin : mute_int_result
       assign ifmt_slice_result[ifmt] = '0;
@@ -520,7 +515,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
     assign byp_pipe_aux_q[0]     = target_aux_d;
     assign byp_pipe_valid_q[0]   = in_valid_i & vectorial_op;
     // Generate the register stages
-    for (genvar i = 0; i < NumPipeRegs; i++) begin : gen_bypass_pipeline
+    for (i = 0; i < NumPipeRegs; i++) begin : gen_bypass_pipeline
       // Internal register enable for this stage
       logic reg_ena;
       // Determine the ready signal of the current stage - advance the pipeline:

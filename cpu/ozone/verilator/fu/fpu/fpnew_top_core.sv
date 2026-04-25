@@ -44,6 +44,10 @@ module fpnew_top_core #(
   output logic                               early_valid_o
 );
 
+  // Generate loop indices
+  genvar g;
+
+
   localparam int unsigned NUM_OPGROUPS = fpnew_pkg::NUM_OPGROUPS;
   localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS;
 
@@ -79,7 +83,7 @@ module fpnew_top_core #(
   // Opgroup block instantiation
   // -----------------------------------------------------------------------
   generate
-  for (genvar g = 0; g < NUM_OPGROUPS; g++) begin : gen_opgroups
+  for (g = 0; g < NUM_OPGROUPS; g++) begin : gen_opgroups
     // Only instantiate if at least one format is enabled for this opgroup
     if (|Implementation.UnitTypes[g]) begin : active
       fpnew_opgroup_block #(
@@ -150,7 +154,7 @@ module fpnew_top_core #(
   always_comb begin
     winner_oh = '0;
     for (int unsigned g = 0; g < NUM_OPGROUPS; g++) begin
-      if (opgrp_out_valid[g] && !|winner_oh) begin
+      if (opgrp_out_valid[g] && !(|winner_oh)) begin
         winner_oh[g] = 1'b1;
       end
     end
