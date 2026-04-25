@@ -28,7 +28,9 @@ DEFAULT_TIMEOUT = 10
 
 # Tests skipped in verilator mode (RTL feature not implemented / expected crash).
 SKIP_VERILATOR = {
-    "el1_3_page_fault",  # TLB $stop assertion — page fault handling not in RTL
+    # "el1_3_page_fault",  # TLB $stop assertion — page fault handling not in RTL
+    # "3_page_fault",  # TLB $stop assertion — page fault handling not in RTL
+
 }
 
 
@@ -191,6 +193,7 @@ def run_test(name, timeout):
 def discover_tests():
     return [f[:-4] for f in sorted(os.listdir(TESTCASE_DIR))
             if f.startswith("el1_") and f.endswith(".elf")]
+            # if f.endswith(".elf")]
 
 
 def main():
