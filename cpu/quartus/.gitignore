@@ -1,0 +1,47 @@
+# ==========================================
+# Quartus Build Databases & Temporary Files
+# ==========================================
+db/
+incremental_db/
+greybox_tmp/
+reconfig/
+*.qmsg
+*.jdi
+*.sld
+*.done
+
+# ==========================================
+# Build Outputs (Binaries & Reports)
+# ==========================================
+# You usually don't want to commit bitstreams (.sof/.pof) or 
+# massive report files. Let the CI/CD or local build make them.
+output_files/
+*.rpt
+*.summary
+*.pin
+*.map
+*.txt
+*.csv
+
+# ==========================================
+# Platform Designer (Qsys) Generated Files
+# ==========================================
+# You ONLY need the .qsys file. The folder with the same name 
+# (e.g., soc_system/) is auto-generated during generation.
+soc_system/
+*.sopcinfo
+*.html
+*.cmp
+
+# ==========================================
+# GUI State and User Specific Settings
+# ==========================================
+*.qws
+*.ddb
+
+# ==========================================
+# Backups and Temp Edits
+# ==========================================
+*.bak
+*~
+*.tmp
