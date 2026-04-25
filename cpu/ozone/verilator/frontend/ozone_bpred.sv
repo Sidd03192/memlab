@@ -50,7 +50,9 @@ module ozone_bpred #(
         if (!rst_n) begin
             // reset
             ghr <= '0;
-            foreach (pht[i]) pht[i] <= 2'b01;  // weakly not-taken
+            for (int i = 0; i < PHT_ENTRIES; i++) begin
+                pht[i] <= 2'b01;  // weakly not-taken
+            end
         end else begin
             if (resolve_v_in) begin
                 // update GHR,

@@ -116,14 +116,17 @@ module ozone_decode
             comb_ins_format = 4'd0;
             // Must be 64-bit size (bits[31:30]=11) and opc=store(00) or load(01).
             comb_ins_valid = (insn_bits[31:30] == 2'b11) &&
-                        (insn_bits[23:22] inside {2'b00, 2'b01});
+                             (insn_bits[23:22] == 2'b00 ||
+                              insn_bits[23:22] == 2'b01);
         end
 
         // Format 7 (B3): branch register (BR, BLR, RET).
         // bits[31:25]=1101011; opc: 0000=BR, 0001=BLR, 0010=RET.
         // Remaining fixed fields must be zero (op2=11111, op3/op4=0).
         else if (insn_bits[31:25] == 7'b1101011               &&
-                 insn_bits[24:21] inside {4'b0000, 4'b0001, 4'b0010} &&
+                 (insn_bits[24:21] == 4'b0000 ||
+                  insn_bits[24:21] == 4'b0001 ||
+                  insn_bits[24:21] == 4'b0010)               &&
                  insn_bits[20:16] == 5'b11111                 &&
                  insn_bits[15:10] == 6'b000000                &&
                  insn_bits[4:0]   == 5'b00000)
@@ -178,7 +181,8 @@ module ozone_decode
         // bits[28:23]=100101, bit[31]=1; opc bits[30:29]: MOVZ=10, MOVK=11.
         else if (insn_bits[28:23] == 6'b100101 && insn_bits[31] == 1'b1) begin
             comb_ins_format = 4'd1;
-            comb_ins_valid  = insn_bits[30:29] inside {2'b10, 2'b11};
+            comb_ins_valid  = (insn_bits[30:29] == 2'b10 ||
+                               insn_bits[30:29] == 2'b11);
         end
 
         // Format 4 (RI): add/sub immediate, or bitfield (UBFM / SBFM), 64-bit.

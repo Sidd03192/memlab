@@ -308,7 +308,7 @@ module ozone_rs_fpmult
           end else if (shift_add == '0) begin
             product      <= '0;
             result_exp   <= '0;
-            if (rounding_mode inside {2'b00, 2'b01})
+            if (rounding_mode == 2'b00 || rounding_mode == 2'b01)
               {sticky_r, round_r} <= 2'b00;
             else if (rounding_mode == 2'b10 && result_sign == 1'b0)
               {sticky_r, round_r} <= 2'b00;

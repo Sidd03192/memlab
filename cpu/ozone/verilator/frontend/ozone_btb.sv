@@ -42,9 +42,11 @@ module ozone_btb #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            foreach (valid[i]) valid[i] <= 0;
-            foreach (tags[i]) tags[i] <= '0;
-            foreach (predictions[i]) predictions[i] <= '0;
+            for (int i = 0; i < BTB_SETS; i++) begin
+                valid[i] <= 1'b0;
+                tags[i] <= '0;
+                predictions[i] <= '0;
+            end
         end else begin
             // resolution logic
             if (resolve_v_in) begin
