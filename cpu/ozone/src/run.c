@@ -56,6 +56,11 @@ static void common_load_and_run(const char* binary_path) {
         return;
     }
 
+    // Tell infer_start_pc (Verilator) or FPGA the correct ELF entry point so
+    // stale standalone shims left in DRAM from previous test runs don't cause
+    // VTop to start at the wrong address.
+    *(volatile uint64_t*)((uint8_t*)g_csr_ptr + 0x10) = (uint64_t)ehdr.e_entry;
+
     fseek(f, (long)ehdr.e_phoff, SEEK_SET);
     Elf64_Phdr phdr;
     for (int i = 0; i < (int)ehdr.e_phnum; i++) {
