@@ -66,7 +66,7 @@ module tb_ozone_shifter;
     logic [63:0]               flush_target_pc;
     logic                      exception_valid;
     logic [63:0]               exception_pc;
-    logic [3:0]                exception_code;
+    logic [7:0]                exception_code;
 
     // shifter
     logic                      shifter_alloc_valid;

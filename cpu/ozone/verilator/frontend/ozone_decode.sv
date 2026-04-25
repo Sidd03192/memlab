@@ -309,7 +309,10 @@ module ozone_decode
                             // S-format
                             packet.opcode <= insn_bits[31:21];
                             packet.reg_d  <= {1'b0, insn_bits[4:0]};
-                            packet.imm    <= {{31{insn_bits[23]}}, insn_bits[23:5], insn_bits[30:29], 12'b0};
+                            if (insn_bits[31:21] == 11'b11010100000 && insn_bits[4:0] == 5'b00001)
+                                packet.imm <= {48'b0, insn_bits[20:5]};
+                            else
+                                packet.imm <= {{31{insn_bits[23]}}, insn_bits[23:5], insn_bits[30:29], 12'b0};
                         end
                         9: begin
                             // FP-format: bits[15:10] = function code
@@ -588,7 +591,11 @@ module ozone_decode
                         end
 
                         4'd8: begin  // S: system / ADRP
-                            if (insn_bits[31:21] == 11'b11010110100) begin  // ERET
+                            if (insn_bits[31:21] == 11'b11010100000 && insn_bits[4:0] == 5'b00001) begin  // SVC
+                                uop_out[0].uop_type <= UOP_SVC;
+                                uop_out[0].imm_opnd <= 1'b1;
+                                uop_out[0].imm_bits <= {48'b0, insn_bits[20:5]};
+                            end else if (insn_bits[31:21] == 11'b11010110100) begin  // ERET
                                 uop_out[0].uop_type <= UOP_ERET;
                             end else if (insn_bits[31:22] == 10'b1101010100) begin  // MRS / MSR
                                 uop_out[0].uop_type <= UOP_OR;

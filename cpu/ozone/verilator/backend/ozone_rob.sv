@@ -63,7 +63,7 @@ module ozone_rob
     output logic [63:0]                 flush_target_pc,    // where to restart fetch
     output logic                        exception_valid,
     output logic [63:0]                 exception_pc,       // faulting PC → ELR_EL1
-    output logic [3:0]                  exception_code
+    output logic [7:0]                  exception_code
 );
 
     // rob entries
@@ -235,7 +235,7 @@ module ozone_rob
                     rob_entries[cdb_in.rob_tag].update_nzcv <= cdb_in.update_nzcv;
                     rob_entries[cdb_in.rob_tag].nzcv        <= cdb_in.nzcv;
                     rob_entries[cdb_in.rob_tag].exc         <= cdb_in.exc;
-                    rob_entries[cdb_in.rob_tag].exc_code    <= cdb_in.exc_code[3:0];
+                    rob_entries[cdb_in.rob_tag].exc_code    <= cdb_in.exc_code;
                     if (cdb_in.br_valid) begin // branch stuff if branch
                         rob_entries[cdb_in.rob_tag].br_taken  <= cdb_in.br_taken;
                         rob_entries[cdb_in.rob_tag].br_target <= cdb_in.br_target;

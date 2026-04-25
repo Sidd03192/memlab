@@ -10,6 +10,13 @@ import fpnew_pkg::*;
 // -------------------------------------------------------
 localparam int ROB_IDX_WIDTH = 6;   // 64-entry ROB
 localparam int OPCODE_W      = 6;   // 64 possible micro-ops
+localparam int BP_GHR_WIDTH  = 8;
+
+localparam logic [7:0] EXC_NONE         = 8'd0;
+localparam logic [7:0] EXC_DATA_ABORT   = 8'd1;
+localparam logic [7:0] EXC_INSN_ABORT   = 8'd2;
+localparam logic [7:0] EXC_SVC_TERMINATE= 8'd16;
+localparam logic [7:0] EXC_BAD_SYSCALL  = 8'd17;
 
 typedef enum logic [1:0] {
     ROB_TYPE_ALU    = 2'd0,
@@ -188,7 +195,7 @@ typedef struct packed {
     logic [3:0]                 nzcv;
     logic                       ready;
     logic                       exc;
-    logic [3:0]                 exc_code;
+    logic [7:0]                 exc_code;
     logic [63:0]                PC;
     logic                       pred_taken; // set by dispatch
     logic [63:0]                pred_target;
@@ -213,6 +220,7 @@ typedef enum logic [3:0] {
     UOP_AND        = 4'd3,
     UOP_OR         = 4'd4,
     UOP_ADD        = 4'd5,
+    UOP_SVC        = 4'd6,
     UOP_XOR        = 4'd7,
     UOP_LSL        = 4'd8,
     UOP_LSR        = 4'd9,
@@ -223,8 +231,6 @@ typedef enum logic [3:0] {
     UOP_FMUL       = 4'd14,
     UOP_ERET       = 4'd15
 } uop_type_e;
-
-localparam int BP_GHR_WIDTH = 8;
 
 typedef struct packed {
     uop_type_e uop_type;

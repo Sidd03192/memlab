@@ -204,11 +204,26 @@ static bool translate_address(cpu_state_t* cpu, uint64_t va, uint64_t* pa) {
     return true;
 }
 
-static void trigger_exception(cpu_state_t* cpu, uint64_t next_pc_on_eret) {
+typedef enum {
+    EXC_REASON_DEFAULT = 0,
+    EXC_REASON_SVC_TERMINATE,
+    EXC_REASON_BAD_SYSCALL
+} exc_reason_t;
+
+static uint64_t exception_vector_offset(exc_reason_t reason) {
+    switch (reason) {
+        case EXC_REASON_SVC_TERMINATE: return 0x500;
+        case EXC_REASON_BAD_SYSCALL:   return 0x600;
+        case EXC_REASON_DEFAULT:
+        default:                       return 0x400;
+    }
+}
+
+static void trigger_exception(cpu_state_t* cpu, uint64_t next_pc_on_eret, exc_reason_t reason) {
     cpu->elr_el1 = next_pc_on_eret;
     cpu->spsr_el1 = cpu->el;
     cpu->el = 1;
-    cpu->pc = cpu->vbar_el1 + 0x400; 
+    cpu->pc = cpu->vbar_el1 + exception_vector_offset(reason);
 }
 
 void sim_run(cpu_state_t* cpu, const char* binary_path) {
@@ -222,7 +237,7 @@ void sim_run(cpu_state_t* cpu, const char* binary_path) {
         uint64_t pa_pc;
         if (!translate_address(cpu, cpu->pc, &pa_pc)) {
             plog(LOG_INFO, "Instruction Fetch Fault at 0x%"PRIx64". Trap to EL1.\n", cpu->pc);
-            trigger_exception(cpu, cpu->pc);
+            trigger_exception(cpu, cpu->pc, EXC_REASON_DEFAULT);
             continue;
         }
         uint64_t dram_offset = pa_pc - cpu->dram_base;
@@ -318,7 +333,7 @@ void sim_run(cpu_state_t* cpu, const char* binary_path) {
                     uint64_t va = get_reg(cpu, arm64->operands[1].mem.base) + arm64->operands[1].mem.disp, pa;
                     if (!translate_address(cpu, va, &pa)) {
                         plog(LOG_INFO, "Store Page Fault at 0x%"PRIx64". Trap to EL1.\n", va);
-                        trigger_exception(cpu, cpu->pc); fault = true;
+                        trigger_exception(cpu, cpu->pc, EXC_REASON_DEFAULT); fault = true;
                     } else {
                         uint64_t val = get_reg(cpu, arm64->operands[0].reg);
                         if (pa < DRAM_SIZE) { memcpy(&cpu->dram[pa], &val, 8); mark_modified(cpu, pa, 8); }
@@ -329,7 +344,7 @@ void sim_run(cpu_state_t* cpu, const char* binary_path) {
                     uint64_t va = get_reg(cpu, arm64->operands[1].mem.base) + arm64->operands[1].mem.disp, pa, val = 0;
                     if (!translate_address(cpu, va, &pa)) {
                         plog(LOG_INFO, "Load Page Fault at 0x%"PRIx64". Trap to EL1.\n", va);
-                        trigger_exception(cpu, cpu->pc); fault = true;
+                        trigger_exception(cpu, cpu->pc, EXC_REASON_DEFAULT); fault = true;
                     } else {
                         if (pa < DRAM_SIZE) { memcpy(&val, &cpu->dram[pa], 8); plog(LOG_DEBUG, "    LDUR [0x%"PRIx64"] -> 0x%"PRIx64"\n", pa, val); }
                         set_reg(cpu, arm64->operands[0].reg, val);
@@ -362,12 +377,20 @@ void sim_run(cpu_state_t* cpu, const char* binary_path) {
                 case ARM64_INS_RET: {
                     next_pc = get_reg(cpu, arm64->operands[0].reg ? arm64->operands[0].reg : ARM64_REG_X30);
                     if (next_pc == 0) {
-                        if (cpu->el == 0) { plog(LOG_INFO, "EL0 Exception: RET to 0. Jumping to EL1 handler.\n"); trigger_exception(cpu, cpu->pc); fault = true; }
+                        if (cpu->el == 0) { plog(LOG_INFO, "EL0 Exception: RET to 0. Jumping to EL1 handler.\n"); trigger_exception(cpu, cpu->pc, EXC_REASON_DEFAULT); fault = true; }
                         else cpu->terminated = true;
                     }
                     break;
                 }
-                case ARM64_INS_SVC: plog(LOG_INFO, "SVC Exception: Jumping to EL1 handler.\n"); trigger_exception(cpu, next_pc); fault = true; break;
+                case ARM64_INS_SVC: {
+                    uint64_t svc_num = (arm64->op_count > 0 && arm64->operands[0].type == ARM64_OP_IMM) ?
+                                       (uint64_t)arm64->operands[0].imm : 0;
+                    exc_reason_t reason = (svc_num == 0) ? EXC_REASON_SVC_TERMINATE : EXC_REASON_BAD_SYSCALL;
+                    plog(LOG_INFO, "SVC #0x%"PRIx64" Exception: Jumping to EL1 handler.\n", svc_num);
+                    trigger_exception(cpu, next_pc, reason);
+                    fault = true;
+                    break;
+                }
                 case ARM64_INS_ERET: next_pc = cpu->elr_el1; cpu->el = cpu->spsr_el1 & 0xF; plog(LOG_INFO, "ERET: Returning to EL%d at 0x%"PRIx64"\n", cpu->el, next_pc); break;
                 case ARM64_INS_MSR: case ARM64_INS_MRS: {
                     arm64_sysreg sys = (arm64_sysreg)((insn[0].id == ARM64_INS_MSR) ? arm64->operands[0].reg : arm64->operands[1].reg);

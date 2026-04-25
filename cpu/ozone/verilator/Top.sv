@@ -61,6 +61,9 @@ module Top
     localparam logic [15:0] SYSREG_ELR_EL1  = 16'hc201;
     localparam logic [15:0] SYSREG_VBAR_EL1 = 16'hc600;
     localparam logic [15:0] SYSREG_ACTLR_EL1 = 16'hc081;
+    localparam logic [47:0] EXC_VEC_DEFAULT  = 48'h400;
+    localparam logic [47:0] EXC_VEC_SVC_TERM = 48'h500;
+    localparam logic [47:0] EXC_VEC_BAD_SYS  = 48'h600;
 
     reg [31:0] state;
     reg [47:0] pc;
@@ -142,7 +145,8 @@ module Top
     logic [63:0] flush_target_pc;
     logic        exception_valid;
     logic [63:0] exception_pc;
-    logic [3:0]  exception_code;
+    logic [7:0]  exception_code;
+    logic [47:0] exception_vector_off;
 
     logic [47:0] btb_pred_target;
     logic        btb_pred_hit;
@@ -182,6 +186,9 @@ module Top
     assign core_flush = pipe_flush || sim_finish_pending;
     assign halt_fetch = core_flush;
     assign fetch_pred_taken = btb_pred_hit && bpred_take;
+    assign exception_vector_off = (exception_code == EXC_SVC_TERMINATE) ? EXC_VEC_SVC_TERM :
+                                  (exception_code == EXC_BAD_SYSCALL)   ? EXC_VEC_BAD_SYS  :
+                                                                          EXC_VEC_DEFAULT;
     assign ret_zero_redirect = commit_valid &&
                                commit_data.inst_type == ROB_TYPE_BRANCH &&
                                commit_data.br_taken &&
@@ -769,11 +776,11 @@ module Top
 
             if (exception_valid) begin
                 $display("[TOP] exception code=%0d pc=0x%016h -> handler 0x%016h",
-                         exception_code, exception_pc, vbar_el1 + 64'h400);
+                         exception_code, exception_pc, {16'b0, vbar_el1[47:0] + exception_vector_off});
                 elr_el1         <= exception_pc;
                 spsr_el1        <= {62'b0, cur_el};
                 cur_el          <= 2'd1;
-                pc              <= vbar_el1[47:0] + 48'h400;
+                pc              <= vbar_el1[47:0] + exception_vector_off;
                 state           <= 0;
                 state7_sent     <= 1'b0;
                 fetch_zero_pending <= 1'b0;

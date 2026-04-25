@@ -62,6 +62,7 @@ start:
 exception_vector_table:
     .org 0x400
 sync_handler:
+    movz x1, #0x33
     adrp x10, _CONFIG_START
     add  x10, x10, :lo12:_CONFIG_START
     // Write terminate value to ACTLR_EL1
@@ -69,3 +70,23 @@ sync_handler:
     msr  actlr_el1, x0
 .Lspin:
     b .Lspin
+
+    .org 0x500
+svc_terminate_handler:
+    movz x1, #0x11
+    adrp x10, _CONFIG_START
+    add  x10, x10, :lo12:_CONFIG_START
+    ldur x0, [x10, #48]
+    msr  actlr_el1, x0
+.Lspin_svc:
+    b .Lspin_svc
+
+    .org 0x600
+bad_syscall_handler:
+    movz x1, #0x22
+    adrp x10, _CONFIG_START
+    add  x10, x10, :lo12:_CONFIG_START
+    ldur x0, [x10, #48]
+    msr  actlr_el1, x0
+.Lspin_bad:
+    b .Lspin_bad

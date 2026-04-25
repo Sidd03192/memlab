@@ -353,6 +353,10 @@ always_comb begin
     rob_alloc_data.sysreg_read = cur.sysreg_read;
     rob_alloc_data.sysreg_id   = cur.sysreg_id;
     rob_alloc_data.is_eret     = (cur.uop_type == UOP_ERET);
+    rob_alloc_data.exc         = (cur.uop_type == UOP_SVC);
+    rob_alloc_data.exc_code    = (cur.uop_type == UOP_SVC) ?
+                                 ((cur.imm_bits[15:0] == 16'h0000) ? EXC_SVC_TERMINATE : EXC_BAD_SYSCALL) :
+                                 EXC_NONE;
     rob_alloc_data.pred_taken  = ((cur.check_target) || (cur.uop_type == UOP_ERET)) ?
                                  cur.pred_taken : 1'b0;
     rob_alloc_data.pred_target = ((cur.check_target) || (cur.uop_type == UOP_ERET)) ?
@@ -366,7 +370,7 @@ always_comb begin
                                       ROB_TYPE_ALU;
     // ERET has no FU to mark it done; mark ready immediately so the ROB can
     // commit it and (eventually) trigger the flush path.
-    rob_alloc_data.ready = (cur.uop_type == UOP_ERET);
+    rob_alloc_data.ready = (cur.uop_type == UOP_ERET) || (cur.uop_type == UOP_SVC);
 end
 
 // ─── Adder RS entry ───────────────────────────────────────────────────────
