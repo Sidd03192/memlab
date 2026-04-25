@@ -62,10 +62,9 @@ This script automates the verification process by checking that the RTL implemen
 ### New `5_*` Tests Added
 The six new tests are in `cpu/ozone/testcases/src`:
 
-- `5_branch_mix.s`: Mixed taken/not-taken branch loop that alternates add/sub behavior and stresses conditional control flow.
 - `5_branch_mix.s`: Mixed taken/not-taken branch loop (+odd/−even accumulation) followed by floating-point ops (`FADD`, `FSUB`) and `SVC #0` termination.
 - `5_call_chain.s`: Nested `BL`/`RET` call chain with stack save/restore of link and callee-saved registers.
 - `5_mem_stride_sum.s`: Stack-based `STUR`/`LDUR` reverse-order integer sum plus floating-point ops (`FADD`, `FMUL`) and `SVC #0` termination.
 - `5_shift_bitops.s`: Integer shift/bitwise datapath checks (`LSR`, `ASR`, `EOR`, `AND`) plus floating-point ops (`FADD`, `FNEG`) and `SVC #0` termination.
-- `5_store_page_fault.s`: Intentional EL0 store to unmapped VA (0x0) to validate store page-fault exception path.
+- `5_gcd.s`: Iterative GCD via subtraction-based Euclidean algorithm (GCD(252, 105) = 21); exercises loops, comparisons, and mixed taken/not-taken branches.
 - `5_svc_select.s`: Branch-selected syscall path that can exercise different `SVC` numbers/handlers.
