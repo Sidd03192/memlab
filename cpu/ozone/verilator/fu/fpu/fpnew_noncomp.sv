@@ -44,7 +44,11 @@ module fpnew_noncomp #(
   parameter int unsigned             TagWidth    = 1,
   parameter int unsigned             AuxWidth    = 1,
   // Do not change
-  parameter int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat),
+  parameter int unsigned WIDTH = (FpFormat == fpnew_pkg::FP64)    ? 64 :
+                                 (FpFormat == fpnew_pkg::FP32)    ? 32 :
+                                 (FpFormat == fpnew_pkg::FP16)    ? 16 :
+                                 (FpFormat == fpnew_pkg::FP16ALT) ? 16 :
+                                 (FpFormat == fpnew_pkg::FP8)     ? 8  : 1,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                  clk_i,
@@ -89,8 +93,14 @@ module fpnew_noncomp #(
   // ----------
   // Constants
   // ----------
-  localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(FpFormat);
-  localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(FpFormat);
+  localparam int unsigned EXP_BITS = (FpFormat == fpnew_pkg::FP64) ? 11 :
+                                     ((FpFormat == fpnew_pkg::FP32) || (FpFormat == fpnew_pkg::FP16ALT)) ? 8 :
+                                     ((FpFormat == fpnew_pkg::FP16) || (FpFormat == fpnew_pkg::FP8)) ? 5 : 1;
+  localparam int unsigned MAN_BITS = (FpFormat == fpnew_pkg::FP64) ? 52 :
+                                     (FpFormat == fpnew_pkg::FP32) ? 23 :
+                                     (FpFormat == fpnew_pkg::FP16) ? 10 :
+                                     (FpFormat == fpnew_pkg::FP16ALT) ? 7 :
+                                     (FpFormat == fpnew_pkg::FP8) ? 2 : 0;
   // Pipelines
   localparam NUM_INP_REGS = (PipeConfig == fpnew_pkg::BEFORE || PipeConfig == fpnew_pkg::INSIDE)
                             ? NumPipeRegs

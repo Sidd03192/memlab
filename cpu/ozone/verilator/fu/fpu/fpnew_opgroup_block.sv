@@ -28,7 +28,7 @@ module fpnew_opgroup_block #(
   parameter int unsigned                TrueSIMDClass = 0,
   // Do not change
   parameter int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
-  parameter int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
+  parameter int unsigned NUM_OPERANDS = (OpGroup == fpnew_pkg::ADDMUL || OpGroup == fpnew_pkg::CONV) ? 3 : 2,
   parameter int unsigned NUM_LANES    = 8
 ) (
   input logic                                     clk_i,
@@ -89,12 +89,49 @@ module fpnew_opgroup_block #(
   // -------------------------
   // Generate Parallel Slices
   // -------------------------
+  localparam logic ANY_MERGED_GLOBAL =
+      (FpFmtMask[fpnew_pkg::FP32]    && (FmtUnitTypes[fpnew_pkg::FP32]    == fpnew_pkg::MERGED)) ||
+      (FpFmtMask[fpnew_pkg::FP64]    && (FmtUnitTypes[fpnew_pkg::FP64]    == fpnew_pkg::MERGED)) ||
+      (FpFmtMask[fpnew_pkg::FP16]    && (FmtUnitTypes[fpnew_pkg::FP16]    == fpnew_pkg::MERGED)) ||
+      (FpFmtMask[fpnew_pkg::FP8]     && (FmtUnitTypes[fpnew_pkg::FP8]     == fpnew_pkg::MERGED)) ||
+      (FpFmtMask[fpnew_pkg::FP16ALT] && (FmtUnitTypes[fpnew_pkg::FP16ALT] == fpnew_pkg::MERGED));
+
+  localparam fpnew_pkg::fp_format_e FIRST_MERGED_FMT =
+      (FpFmtMask[fpnew_pkg::FP32]    && (FmtUnitTypes[fpnew_pkg::FP32]    == fpnew_pkg::MERGED)) ? fpnew_pkg::FP32 :
+      (FpFmtMask[fpnew_pkg::FP64]    && (FmtUnitTypes[fpnew_pkg::FP64]    == fpnew_pkg::MERGED)) ? fpnew_pkg::FP64 :
+      (FpFmtMask[fpnew_pkg::FP16]    && (FmtUnitTypes[fpnew_pkg::FP16]    == fpnew_pkg::MERGED)) ? fpnew_pkg::FP16 :
+      (FpFmtMask[fpnew_pkg::FP8]     && (FmtUnitTypes[fpnew_pkg::FP8]     == fpnew_pkg::MERGED)) ? fpnew_pkg::FP8 :
+      (FpFmtMask[fpnew_pkg::FP16ALT] && (FmtUnitTypes[fpnew_pkg::FP16ALT] == fpnew_pkg::MERGED)) ? fpnew_pkg::FP16ALT :
+      fpnew_pkg::FP32;
+
+  localparam int unsigned REG_MERGED =
+      ((FpFmtMask[fpnew_pkg::FP32]    && (FmtUnitTypes[fpnew_pkg::FP32]    == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP32]    : 0) >
+       (FpFmtMask[fpnew_pkg::FP64]    && (FmtUnitTypes[fpnew_pkg::FP64]    == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP64]    : 0)
+        ? (FpFmtMask[fpnew_pkg::FP32] && (FmtUnitTypes[fpnew_pkg::FP32]    == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP32]    : 0)
+        : (FpFmtMask[fpnew_pkg::FP64] && (FmtUnitTypes[fpnew_pkg::FP64]    == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP64]    : 0)) >
+      ((FpFmtMask[fpnew_pkg::FP16]    && (FmtUnitTypes[fpnew_pkg::FP16]    == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP16]    : 0) >
+       (FpFmtMask[fpnew_pkg::FP8]     && (FmtUnitTypes[fpnew_pkg::FP8]     == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP8]     : 0)
+        ? (FpFmtMask[fpnew_pkg::FP16] && (FmtUnitTypes[fpnew_pkg::FP16]    == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP16]    : 0)
+        : (FpFmtMask[fpnew_pkg::FP8]  && (FmtUnitTypes[fpnew_pkg::FP8]     == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP8]     : 0))
+        ? ((FpFmtMask[fpnew_pkg::FP32] && (FmtUnitTypes[fpnew_pkg::FP32]   == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP32]    : 0) >
+           (FpFmtMask[fpnew_pkg::FP64] && (FmtUnitTypes[fpnew_pkg::FP64]   == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP64]    : 0)
+            ? (FpFmtMask[fpnew_pkg::FP32] && (FmtUnitTypes[fpnew_pkg::FP32] == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP32]    : 0)
+            : (FpFmtMask[fpnew_pkg::FP64] && (FmtUnitTypes[fpnew_pkg::FP64] == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP64]    : 0))
+        : ((FpFmtMask[fpnew_pkg::FP16] && (FmtUnitTypes[fpnew_pkg::FP16]    == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP16]    : 0) >
+           (FpFmtMask[fpnew_pkg::FP8]  && (FmtUnitTypes[fpnew_pkg::FP8]     == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP8]     : 0)
+            ? (FpFmtMask[fpnew_pkg::FP16] && (FmtUnitTypes[fpnew_pkg::FP16] == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP16]    : 0)
+            : (FpFmtMask[fpnew_pkg::FP8]  && (FmtUnitTypes[fpnew_pkg::FP8]  == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP8]     : 0));
+
+  localparam int unsigned REG =
+      ((REG_MERGED > (FpFmtMask[fpnew_pkg::FP16ALT] && (FmtUnitTypes[fpnew_pkg::FP16ALT] == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP16ALT] : 0))
+        ? REG_MERGED
+        : (FpFmtMask[fpnew_pkg::FP16ALT] && (FmtUnitTypes[fpnew_pkg::FP16ALT] == fpnew_pkg::MERGED) ? FmtPipeRegs[fpnew_pkg::FP16ALT] : 0));
+
   generate
   for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_parallel_slices
     // Some constants for this format
-    localparam logic ANY_MERGED = fpnew_pkg::any_enabled_multi(FmtUnitTypes, FpFmtMask);
-    localparam logic IS_FIRST_MERGED =
-        fpnew_pkg::is_first_enabled_multi(fpnew_pkg::fp_format_e'(fmt), FmtUnitTypes, FpFmtMask);
+    localparam logic ANY_MERGED = ANY_MERGED_GLOBAL;
+    localparam logic IS_FIRST_MERGED = (fpnew_pkg::fp_format_e'(fmt) == FIRST_MERGED_FMT);
 
     // Generate slice only if format enabled
     if (FpFmtMask[fmt] && (FmtUnitTypes[fmt] == fpnew_pkg::PARALLEL)) begin : active_format
@@ -105,7 +142,12 @@ module fpnew_opgroup_block #(
       assign in_valid = in_valid_i & (dst_fmt_i == fpnew_pkg::fp_format_e'(fmt)); // enable selected format
 
       // Forward masks related to the right SIMD lane
-      localparam int unsigned INTERNAL_LANES = fpnew_pkg::num_lanes(Width, fpnew_pkg::fp_format_e'(fmt), EnableVectors);
+      localparam int unsigned INTERNAL_LANE_WIDTH = (fmt == fpnew_pkg::FP64)    ? 64 :
+                        (fmt == fpnew_pkg::FP32)    ? 32 :
+                        (fmt == fpnew_pkg::FP16)    ? 16 :
+                        (fmt == fpnew_pkg::FP16ALT) ? 16 :
+                        (fmt == fpnew_pkg::FP8)     ? 8  : 1;
+      localparam int unsigned INTERNAL_LANES = EnableVectors ? (Width / INTERNAL_LANE_WIDTH) : 1;
       logic [INTERNAL_LANES-1:0] mask_slice;
       always_comb for (int b = 0; b < INTERNAL_LANES; b++) mask_slice[b] = simd_mask_i[(NUM_LANES/INTERNAL_LANES)*b];
 
@@ -145,7 +187,7 @@ module fpnew_opgroup_block #(
     // If the format wants to use merged ops, tie off the dangling ones not used here
     end else if (FpFmtMask[fmt] && ANY_MERGED && !IS_FIRST_MERGED) begin : merged_unused
 
-      localparam FMT = fpnew_pkg::get_first_enabled_multi(FmtUnitTypes, FpFmtMask);
+      localparam FMT = FIRST_MERGED_FMT;
       // Ready is split up into formats
       assign fmt_in_ready[fmt]  = fmt_in_ready[FMT];
 
@@ -176,10 +218,9 @@ module fpnew_opgroup_block #(
   // Generate Merged Slice
   // ----------------------
   generate
-  if (fpnew_pkg::any_enabled_multi(FmtUnitTypes, FpFmtMask)) begin : gen_merged_slice
+  if (ANY_MERGED_GLOBAL) begin : gen_merged_slice
 
-    localparam FMT = fpnew_pkg::get_first_enabled_multi(FmtUnitTypes, FpFmtMask);
-    localparam REG = fpnew_pkg::get_num_regs_multi(FmtPipeRegs, FmtUnitTypes, FpFmtMask);
+    localparam FMT = FIRST_MERGED_FMT;
 
     logic in_valid;
 

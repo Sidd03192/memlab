@@ -25,8 +25,14 @@ module fpnew_opgroup_fmt_slice #(
   parameter int unsigned             TagWidth    = 1,
   parameter int unsigned             TrueSIMDClass = 0,
   // Do not change
-  parameter int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
-  parameter int unsigned NUM_LANES    = fpnew_pkg::num_lanes(Width, FpFormat, EnableVectors),
+  parameter int unsigned NUM_OPERANDS = (OpGroup == fpnew_pkg::ADDMUL || OpGroup == fpnew_pkg::CONV) ? 3 : 2,
+  parameter int unsigned NUM_LANES    = EnableVectors
+                                        ? (Width / ((FpFormat == fpnew_pkg::FP64)    ? 64 :
+                                                    (FpFormat == fpnew_pkg::FP32)    ? 32 :
+                                                    (FpFormat == fpnew_pkg::FP16)    ? 16 :
+                                                    (FpFormat == fpnew_pkg::FP16ALT) ? 16 :
+                                                    (FpFormat == fpnew_pkg::FP8)     ? 8  : 1))
+                                        : 1,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                               clk_i,
@@ -64,7 +70,11 @@ module fpnew_opgroup_fmt_slice #(
   genvar lane;
 
 
-  localparam int unsigned FP_WIDTH  = fpnew_pkg::fp_width(FpFormat);
+  localparam int unsigned FP_WIDTH  = (FpFormat == fpnew_pkg::FP64)    ? 64 :
+                                      (FpFormat == fpnew_pkg::FP32)    ? 32 :
+                                      (FpFormat == fpnew_pkg::FP16)    ? 16 :
+                                      (FpFormat == fpnew_pkg::FP16ALT) ? 16 :
+                                      (FpFormat == fpnew_pkg::FP8)     ? 8  : 1;
   localparam int unsigned SIMD_WIDTH = $unsigned(Width/NUM_LANES);
 
 

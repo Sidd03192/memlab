@@ -46,8 +46,10 @@ module fpnew_cast_multi #(
   parameter int unsigned             TagWidth    = 1,
   parameter int unsigned             AuxWidth    = 1,
   // Do not change
-  parameter int unsigned WIDTH = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpFmtConfig),
-                                                    fpnew_pkg::max_int_width(IntFmtConfig)),
+  parameter int unsigned WIDTH = (FpFmtConfig[fpnew_pkg::FP64] || IntFmtConfig[fpnew_pkg::INT64]) ? 64 :
+                                 (FpFmtConfig[fpnew_pkg::FP32] || IntFmtConfig[fpnew_pkg::INT32]) ? 32 :
+                                 (FpFmtConfig[fpnew_pkg::FP16] || FpFmtConfig[fpnew_pkg::FP16ALT] || IntFmtConfig[fpnew_pkg::INT16]) ? 16 :
+                                 (FpFmtConfig[fpnew_pkg::FP8] || IntFmtConfig[fpnew_pkg::INT8]) ? 8 : 1,
   parameter int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
@@ -97,20 +99,35 @@ module fpnew_cast_multi #(
   // Constants
   // ----------
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
-  localparam int unsigned MAX_INT_WIDTH   = fpnew_pkg::max_int_width(IntFmtConfig);
+  localparam int unsigned MAX_INT_WIDTH   = IntFmtConfig[fpnew_pkg::INT64] ? 64 :
+                                            IntFmtConfig[fpnew_pkg::INT32] ? 32 :
+                                            IntFmtConfig[fpnew_pkg::INT16] ? 16 :
+                                            IntFmtConfig[fpnew_pkg::INT8]  ? 8  : 1;
 
-  localparam int unsigned SUPER_EXP_BITS = fpnew_pkg::max_exp_bits(FpFmtConfig);
-  localparam int unsigned SUPER_MAN_BITS = fpnew_pkg::max_man_bits(FpFmtConfig);
+  localparam int unsigned SUPER_EXP_BITS = FpFmtConfig[fpnew_pkg::FP64] ? 11 :
+                                           (FpFmtConfig[fpnew_pkg::FP32] || FpFmtConfig[fpnew_pkg::FP16ALT]) ? 8 :
+                                           (FpFmtConfig[fpnew_pkg::FP16] || FpFmtConfig[fpnew_pkg::FP8]) ? 5 : 1;
+  localparam int unsigned SUPER_MAN_BITS = FpFmtConfig[fpnew_pkg::FP64] ? 52 :
+                                           FpFmtConfig[fpnew_pkg::FP32] ? 23 :
+                                           FpFmtConfig[fpnew_pkg::FP16] ? 10 :
+                                           FpFmtConfig[fpnew_pkg::FP16ALT] ? 7 :
+                                           FpFmtConfig[fpnew_pkg::FP8] ? 2 : 0;
   localparam int unsigned SUPER_BIAS     = 2**(SUPER_EXP_BITS - 1) - 1;
 
   // The internal mantissa includes normal bit or an entire integer
-  localparam int unsigned INT_MAN_WIDTH = fpnew_pkg::maximum(SUPER_MAN_BITS + 1, MAX_INT_WIDTH);
+  localparam int unsigned INT_MAN_WIDTH = ((SUPER_MAN_BITS + 1) > MAX_INT_WIDTH)
+                                          ? (SUPER_MAN_BITS + 1)
+                                          : MAX_INT_WIDTH;
   // If needed, there will be a LZC for renormalization
   localparam int unsigned LZC_RESULT_WIDTH = $clog2(INT_MAN_WIDTH);
   // The internal exponent must be able to represent the smallest denormal input value as signed
   // or the number of bits in an integer
-  localparam int unsigned INT_EXP_WIDTH = fpnew_pkg::maximum($clog2(MAX_INT_WIDTH),
-      fpnew_pkg::maximum(SUPER_EXP_BITS, $clog2(SUPER_BIAS + SUPER_MAN_BITS))) + 1;
+  localparam int unsigned INT_EXP_MID = (SUPER_EXP_BITS > $clog2(SUPER_BIAS + SUPER_MAN_BITS))
+                                        ? SUPER_EXP_BITS
+                                        : $clog2(SUPER_BIAS + SUPER_MAN_BITS);
+  localparam int unsigned INT_EXP_WIDTH = (($clog2(MAX_INT_WIDTH) > INT_EXP_MID)
+                                           ? $clog2(MAX_INT_WIDTH)
+                                           : INT_EXP_MID) + 1;
   // Pipelines
   localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
                             ? NumPipeRegs

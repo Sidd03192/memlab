@@ -17,7 +17,11 @@ module fpnew_classifier #(
   parameter fpnew_pkg::fp_format_e   FpFormat = fpnew_pkg::fp_format_e'(0),
   parameter int unsigned             NumOperands = 1,
   // Do not change
-  parameter int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat)
+  parameter int unsigned WIDTH = (FpFormat == fpnew_pkg::FP64)    ? 64 :
+                                 (FpFormat == fpnew_pkg::FP32)    ? 32 :
+                                 (FpFormat == fpnew_pkg::FP16)    ? 16 :
+                                 (FpFormat == fpnew_pkg::FP16ALT) ? 16 :
+                                 (FpFormat == fpnew_pkg::FP8)     ? 8  : 1
 ) (
   input  logic                [NumOperands-1:0][WIDTH-1:0] operands_i,
   input  logic                [NumOperands-1:0]            is_boxed_i,
@@ -28,8 +32,14 @@ module fpnew_classifier #(
   genvar op;
 
 
-  localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(FpFormat);
-  localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(FpFormat);
+  localparam int unsigned EXP_BITS = (FpFormat == fpnew_pkg::FP64) ? 11 :
+                                     ((FpFormat == fpnew_pkg::FP32) || (FpFormat == fpnew_pkg::FP16ALT)) ? 8 :
+                                     ((FpFormat == fpnew_pkg::FP16) || (FpFormat == fpnew_pkg::FP8)) ? 5 : 1;
+  localparam int unsigned MAN_BITS = (FpFormat == fpnew_pkg::FP64) ? 52 :
+                                     (FpFormat == fpnew_pkg::FP32) ? 23 :
+                                     (FpFormat == fpnew_pkg::FP16) ? 10 :
+                                     (FpFormat == fpnew_pkg::FP16ALT) ? 7 :
+                                     (FpFormat == fpnew_pkg::FP8) ? 2 : 0;
 
   // Type definition
   typedef struct packed {

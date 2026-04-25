@@ -50,7 +50,7 @@ module fpnew_opgroup_multifmt_slice #(
   parameter logic                     ExtRegEna     = 1'b0,
   parameter int unsigned             TagWidth    = 1,
   // Do not change
-  parameter int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
+  parameter int unsigned NUM_OPERANDS = (OpGroup == fpnew_pkg::ADDMUL || OpGroup == fpnew_pkg::CONV) ? 3 : 2,
   parameter int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   parameter int unsigned NUM_SIMD_LANES = 8,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
@@ -107,11 +107,19 @@ module fpnew_opgroup_multifmt_slice #(
                                             IntFmtConfig[fpnew_pkg::INT16] ? 16 :
                                             IntFmtConfig[fpnew_pkg::INT8]  ? 8  : 1;
   localparam int unsigned NUM_LANES = NUM_SIMD_LANES;
-  localparam int unsigned NUM_DIVSQRT_LANES = fpnew_pkg::num_divsqrt_lanes(Width, FpFmtConfig, 1'b1, DivSqrtSel);
+  localparam fpnew_pkg::fmt_logic_t DIVSQRT_FMT_CFG = (DivSqrtSel == fpnew_pkg::THMULTI)
+                                                       ? (FpFmtConfig & 5'b11101)
+                                                       : FpFmtConfig;
+  localparam int unsigned MIN_DIVSQRT_FP_WIDTH = DIVSQRT_FMT_CFG[fpnew_pkg::FP8] ? 8 :
+                                                  (DIVSQRT_FMT_CFG[fpnew_pkg::FP16] ||
+                                                   DIVSQRT_FMT_CFG[fpnew_pkg::FP16ALT]) ? 16 :
+                                                  DIVSQRT_FMT_CFG[fpnew_pkg::FP32] ? 32 :
+                                                  DIVSQRT_FMT_CFG[fpnew_pkg::FP64] ? 64 : 1;
+  localparam int unsigned NUM_DIVSQRT_LANES = Width / MIN_DIVSQRT_FP_WIDTH;
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
   // We will send the format information along with the data
-  localparam int unsigned FMT_BITS =
-      fpnew_pkg::maximum($clog2(NUM_FORMATS), $clog2(NUM_INT_FORMATS));
+    localparam int unsigned FMT_BITS =
+      ($clog2(NUM_FORMATS) > $clog2(NUM_INT_FORMATS)) ? $clog2(NUM_FORMATS) : $clog2(NUM_INT_FORMATS);
   localparam int unsigned AUX_BITS = FMT_BITS + 2; // also add vectorial and integer flags
 
   logic [NUM_LANES-1:0] lane_in_ready, lane_out_valid, divsqrt_done, divsqrt_ready; // Handshake signals for the lanes
@@ -195,10 +203,24 @@ module fpnew_opgroup_multifmt_slice #(
   for (lane = 0; lane < NUM_LANES; lane++) begin : gen_num_lanes
     localparam int unsigned LANE = $unsigned(lane); // unsigned to please the linter
     // Get a mask of active formats for this lane
-    localparam fpnew_pkg::fmt_logic_t ACTIVE_FORMATS =
-        fpnew_pkg::get_lane_formats(Width, FpFmtConfig, LANE);
-    localparam fpnew_pkg::ifmt_logic_t ACTIVE_INT_FORMATS =
-        fpnew_pkg::get_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
+    localparam logic ACTIVE_FP32 = FpFmtConfig[fpnew_pkg::FP32] && ((Width / 32) > LANE);
+    localparam logic ACTIVE_FP64 = FpFmtConfig[fpnew_pkg::FP64] && ((Width / 64) > LANE);
+    localparam logic ACTIVE_FP16 = FpFmtConfig[fpnew_pkg::FP16] && ((Width / 16) > LANE);
+    localparam logic ACTIVE_FP8 = FpFmtConfig[fpnew_pkg::FP8] && ((Width / 8) > LANE);
+    localparam logic ACTIVE_FP16ALT = FpFmtConfig[fpnew_pkg::FP16ALT] && ((Width / 16) > LANE);
+    localparam fpnew_pkg::fmt_logic_t ACTIVE_FORMATS = {
+      ACTIVE_FP32,
+      ACTIVE_FP64,
+      ACTIVE_FP16,
+      ACTIVE_FP8,
+      ACTIVE_FP16ALT
+    };
+    localparam fpnew_pkg::ifmt_logic_t ACTIVE_INT_FORMATS = {
+      IntFmtConfig[fpnew_pkg::INT8]  && ACTIVE_FP8,
+      IntFmtConfig[fpnew_pkg::INT16] && (ACTIVE_FP16 || ACTIVE_FP16ALT),
+      IntFmtConfig[fpnew_pkg::INT32] && ACTIVE_FP32,
+      IntFmtConfig[fpnew_pkg::INT64] && ACTIVE_FP64
+    };
     localparam int unsigned MAX_WIDTH = ACTIVE_FORMATS[fpnew_pkg::FP64]    ? 64 :
                       ACTIVE_FORMATS[fpnew_pkg::FP32]    ? 32 :
                       ACTIVE_FORMATS[fpnew_pkg::FP16]    ? 16 :
@@ -206,10 +228,24 @@ module fpnew_opgroup_multifmt_slice #(
                       ACTIVE_FORMATS[fpnew_pkg::FP8]     ? 8  : 1;
 
     // Cast-specific parameters
-    localparam fpnew_pkg::fmt_logic_t CONV_FORMATS =
-        fpnew_pkg::get_conv_lane_formats(Width, FpFmtConfig, LANE);
-    localparam fpnew_pkg::ifmt_logic_t CONV_INT_FORMATS =
-        fpnew_pkg::get_conv_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
+    localparam logic CONV_FP32 = FpFmtConfig[fpnew_pkg::FP32] && (((Width / 32) > LANE) || (LANE < 2));
+    localparam logic CONV_FP64 = FpFmtConfig[fpnew_pkg::FP64] && (((Width / 64) > LANE) || (LANE < 2));
+    localparam logic CONV_FP16 = FpFmtConfig[fpnew_pkg::FP16] && ((Width / 16) > LANE);
+    localparam logic CONV_FP8 = FpFmtConfig[fpnew_pkg::FP8] && ((Width / 8) > LANE);
+    localparam logic CONV_FP16ALT = FpFmtConfig[fpnew_pkg::FP16ALT] && ((Width / 16) > LANE);
+    localparam fpnew_pkg::fmt_logic_t CONV_FORMATS = {
+      CONV_FP32,
+      CONV_FP64,
+      CONV_FP16,
+      CONV_FP8,
+      CONV_FP16ALT
+    };
+    localparam fpnew_pkg::ifmt_logic_t CONV_INT_FORMATS = {
+      IntFmtConfig[fpnew_pkg::INT8]  && CONV_FP8,
+      IntFmtConfig[fpnew_pkg::INT16] && (CONV_FP16 || CONV_FP16ALT),
+      IntFmtConfig[fpnew_pkg::INT32] && CONV_FP32,
+      IntFmtConfig[fpnew_pkg::INT64] && CONV_FP64
+    };
     localparam int unsigned CONV_WIDTH = CONV_FORMATS[fpnew_pkg::FP64]    ? 64 :
                        CONV_FORMATS[fpnew_pkg::FP32]    ? 32 :
                        CONV_FORMATS[fpnew_pkg::FP16]    ? 16 :
@@ -480,7 +516,11 @@ module fpnew_opgroup_multifmt_slice #(
     // Generate result packing depending on float format
     for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : pack_fp_result
       // Set up some constants
-      localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+      localparam int unsigned FP_WIDTH = (fmt == fpnew_pkg::FP64)    ? 64 :
+                     (fmt == fpnew_pkg::FP32)    ? 32 :
+                     (fmt == fpnew_pkg::FP16)    ? 16 :
+                     (fmt == fpnew_pkg::FP16ALT) ? 16 :
+                     (fmt == fpnew_pkg::FP8)     ? 8  : 1;
       // only for active formats within the lane
       if (ACTIVE_FORMATS[fmt]) begin
         assign fmt_slice_result[fmt][(LANE+1)*FP_WIDTH-1:LANE*FP_WIDTH] =
@@ -498,7 +538,10 @@ module fpnew_opgroup_multifmt_slice #(
     if (OpGroup == fpnew_pkg::CONV) begin : int_results_enabled
       for (ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : pack_int_result
         // Set up some constants
-        localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
+        localparam int unsigned INT_WIDTH = (ifmt == fpnew_pkg::INT64) ? 64 :
+                    (ifmt == fpnew_pkg::INT32) ? 32 :
+                    (ifmt == fpnew_pkg::INT16) ? 16 :
+                    (ifmt == fpnew_pkg::INT8)  ? 8  : 1;
         if (ACTIVE_INT_FORMATS[ifmt]) begin
           assign ifmt_slice_result[ifmt][(LANE+1)*INT_WIDTH-1:LANE*INT_WIDTH] =
             local_result[INT_WIDTH-1:0];
@@ -516,7 +559,11 @@ module fpnew_opgroup_multifmt_slice #(
   generate
   for (fmt = 0; fmt < NUM_FORMATS; fmt++) begin : extend_fp_result
     // Set up some constants
-    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned FP_WIDTH = (fmt == fpnew_pkg::FP64)    ? 64 :
+                       (fmt == fpnew_pkg::FP32)    ? 32 :
+                       (fmt == fpnew_pkg::FP16)    ? 16 :
+                       (fmt == fpnew_pkg::FP16ALT) ? 16 :
+                       (fmt == fpnew_pkg::FP8)     ? 8  : 1;
     if (NUM_LANES*FP_WIDTH < Width)
       assign fmt_slice_result[fmt][Width-1:NUM_LANES*FP_WIDTH] = '{default: lane_ext_bit[0]};
   end
@@ -531,7 +578,10 @@ module fpnew_opgroup_multifmt_slice #(
     // Extend slice result if needed
     end else begin : extend_int_result
       // Set up some constants
-      localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
+      localparam int unsigned INT_WIDTH = (ifmt == fpnew_pkg::INT64) ? 64 :
+                  (ifmt == fpnew_pkg::INT32) ? 32 :
+                  (ifmt == fpnew_pkg::INT16) ? 16 :
+                  (ifmt == fpnew_pkg::INT8)  ? 8  : 1;
       if (NUM_LANES*INT_WIDTH < Width)
         assign ifmt_slice_result[ifmt][Width-1:NUM_LANES*INT_WIDTH] = '0;
     end

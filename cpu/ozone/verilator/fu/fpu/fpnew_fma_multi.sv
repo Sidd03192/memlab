@@ -44,7 +44,11 @@ module fpnew_fma_multi #(
   parameter int unsigned             TagWidth    = 1,
   parameter int unsigned             AuxWidth    = 1,
   // Do not change
-  parameter int unsigned WIDTH       = fpnew_pkg::max_fp_width(FpFmtConfig),
+  parameter int unsigned WIDTH       = FpFmtConfig[fpnew_pkg::FP64]    ? 64 :
+                                       FpFmtConfig[fpnew_pkg::FP32]    ? 32 :
+                                       FpFmtConfig[fpnew_pkg::FP16]    ? 16 :
+                                       FpFmtConfig[fpnew_pkg::FP16ALT] ? 16 :
+                                       FpFmtConfig[fpnew_pkg::FP8]     ? 8  : 1,
   parameter int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
@@ -94,8 +98,14 @@ module fpnew_fma_multi #(
   // Constants
   // ----------
   // The super-format that can hold all formats
-  localparam int unsigned SUPER_EXP_BITS = fpnew_pkg::max_exp_bits(FpFmtConfig);
-  localparam int unsigned SUPER_MAN_BITS = fpnew_pkg::max_man_bits(FpFmtConfig);
+  localparam int unsigned SUPER_EXP_BITS = FpFmtConfig[fpnew_pkg::FP64] ? 11 :
+                                           (FpFmtConfig[fpnew_pkg::FP32] || FpFmtConfig[fpnew_pkg::FP16ALT]) ? 8 :
+                                           (FpFmtConfig[fpnew_pkg::FP16] || FpFmtConfig[fpnew_pkg::FP8]) ? 5 : 1;
+  localparam int unsigned SUPER_MAN_BITS = FpFmtConfig[fpnew_pkg::FP64] ? 52 :
+                                           FpFmtConfig[fpnew_pkg::FP32] ? 23 :
+                                           FpFmtConfig[fpnew_pkg::FP16] ? 10 :
+                                           FpFmtConfig[fpnew_pkg::FP16ALT] ? 7 :
+                                           FpFmtConfig[fpnew_pkg::FP8] ? 2 : 0;
 
   // Precision bits 'p' include the implicit bit
   localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
@@ -105,7 +115,9 @@ module fpnew_fma_multi #(
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
-  localparam int unsigned EXP_WIDTH = fpnew_pkg::maximum(SUPER_EXP_BITS + 2, LZC_RESULT_WIDTH);
+  localparam int unsigned EXP_WIDTH = ((SUPER_EXP_BITS + 2) > LZC_RESULT_WIDTH)
+                                      ? (SUPER_EXP_BITS + 2)
+                                      : LZC_RESULT_WIDTH;
   // Shift amount width: maximum internal mantissa size is 3p+4 bits
   localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(3 * PRECISION_BITS + 5);
   // Pipelines

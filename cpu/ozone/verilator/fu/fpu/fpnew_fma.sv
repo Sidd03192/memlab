@@ -44,7 +44,11 @@ module fpnew_fma #(
   parameter int unsigned             TagWidth    = 1,
   parameter int unsigned             AuxWidth    = 1,
   // Do not change
-  parameter int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat),
+  parameter int unsigned WIDTH = (FpFormat == fpnew_pkg::FP64)    ? 64 :
+                                 (FpFormat == fpnew_pkg::FP32)    ? 32 :
+                                 (FpFormat == fpnew_pkg::FP16)    ? 16 :
+                                 (FpFormat == fpnew_pkg::FP16ALT) ? 16 :
+                                 (FpFormat == fpnew_pkg::FP8)     ? 8  : 1,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                      clk_i,
@@ -87,9 +91,15 @@ module fpnew_fma #(
   // ----------
   // Constants
   // ----------
-  localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(FpFormat);
-  localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(FpFormat);
-  localparam int unsigned BIAS     = fpnew_pkg::bias(FpFormat);
+  localparam int unsigned EXP_BITS = (FpFormat == fpnew_pkg::FP64) ? 11 :
+                                     ((FpFormat == fpnew_pkg::FP32) || (FpFormat == fpnew_pkg::FP16ALT)) ? 8 :
+                                     ((FpFormat == fpnew_pkg::FP16) || (FpFormat == fpnew_pkg::FP8)) ? 5 : 1;
+  localparam int unsigned MAN_BITS = (FpFormat == fpnew_pkg::FP64) ? 52 :
+                                     (FpFormat == fpnew_pkg::FP32) ? 23 :
+                                     (FpFormat == fpnew_pkg::FP16) ? 10 :
+                                     (FpFormat == fpnew_pkg::FP16ALT) ? 7 :
+                                     (FpFormat == fpnew_pkg::FP8) ? 2 : 0;
+  localparam int unsigned BIAS     = (2**(EXP_BITS-1))-1;
   // Precision bits 'p' include the implicit bit
   localparam int unsigned PRECISION_BITS = MAN_BITS + 1;
   // The lower 2p+3 bits of the internal FMA result will be needed for leading-zero detection
@@ -98,7 +108,9 @@ module fpnew_fma #(
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
-  localparam int unsigned EXP_WIDTH = $unsigned(fpnew_pkg::maximum(EXP_BITS + 2, LZC_RESULT_WIDTH));
+  localparam int unsigned EXP_WIDTH = ((EXP_BITS + 2) > LZC_RESULT_WIDTH)
+                                      ? (EXP_BITS + 2)
+                                      : LZC_RESULT_WIDTH;
   // Shift amount width: maximum internal mantissa size is 3p+4 bits
   localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(3 * PRECISION_BITS + 5);
   // Pipelines

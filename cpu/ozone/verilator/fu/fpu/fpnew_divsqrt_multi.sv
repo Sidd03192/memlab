@@ -45,7 +45,11 @@ module fpnew_divsqrt_multi #(
   parameter int unsigned             TagWidth    = 1,
   parameter int unsigned             AuxWidth    = 1,
   // Do not change
-  parameter int unsigned WIDTH       = fpnew_pkg::max_fp_width(FpFmtConfig),
+  parameter int unsigned WIDTH       = FpFmtConfig[fpnew_pkg::FP64]    ? 64 :
+                                       FpFmtConfig[fpnew_pkg::FP32]    ? 32 :
+                                       FpFmtConfig[fpnew_pkg::FP16]    ? 16 :
+                                       FpFmtConfig[fpnew_pkg::FP16ALT] ? 16 :
+                                       FpFmtConfig[fpnew_pkg::FP8]     ? 8  : 1,
   parameter int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
