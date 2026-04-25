@@ -16,7 +16,28 @@
 //          Jiang Lannan <jiangl@ethz.ch>
 //          Kexin Li <likexi@ethz.ch>
 
-`include "common_cells/registers.svh"
+`ifndef FPNEW_LOCAL_REGISTERS_SVH_
+`define FPNEW_LOCAL_REGISTERS_SVH_
+`define FF(q, d, rst_val) \
+  always @(posedge clk_i or negedge rst_ni) begin \
+    if (!rst_ni) q <= rst_val; \
+    else q <= d; \
+  end
+`define FFL(q, d, load, rst_val) \
+  always @(posedge clk_i or negedge rst_ni) begin \
+    if (!rst_ni) q <= rst_val; \
+    else if (load) q <= d; \
+  end
+`define FFLARNC(q, d, load, arst, rst_val, clk, rstn) \
+  always @(posedge clk or negedge rstn or posedge arst) begin \
+    if (!rstn || arst) q <= rst_val; \
+    else if (load) q <= d; \
+  end
+`define FFLNR(q, d, load, clk) \
+  always @(posedge clk) begin \
+    if (load) q <= d; \
+  end
+`endif
 
 module fpnew_divsqrt_th_32 #(
   // FP32-only DivSqrt

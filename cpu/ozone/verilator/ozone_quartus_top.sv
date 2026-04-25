@@ -1,11 +1,11 @@
 `timescale 1ns/1ps
 
 module ozone_quartus_top (
-    input  logic        clk_clk,
-    input  logic        reset_reset,
-    input  logic [63:0] start_pc_export,
+    input  logic        clock_i,
+    input  logic        reset_i,
+    input  logic [63:0] boot_pc_i,
 
-    output logic        done_export
+    output logic        halted_o
 );
 
     logic [63:0] mem_addr_unused;
@@ -27,9 +27,9 @@ module ozone_quartus_top (
     logic [63:0] fp_regs_unused [0:31];
 
     Top u_top (
-        .clk              (clk_clk),
-        .reset            (reset_reset),
-        .start_pc         (start_pc_export),
+        .clk              (clock_i),
+        .reset            (reset_i),
+        .start_pc         (boot_pc_i),
 
         .mem_addr         (mem_addr_unused),
         .mem_rdata        ('0),
@@ -54,7 +54,7 @@ module ozone_quartus_top (
         .sim_store_paddr  (sim_store_paddr_unused),
         .sim_store_data   (sim_store_data_unused),
 
-        .done             (done_export),
+        .done             (halted_o),
         .x_regs           (x_regs_unused),
         .fp_regs          (fp_regs_unused)
     );
