@@ -149,6 +149,7 @@ module fpnew_fma_multi #(
   // Input stage: Propagate pipeline ready signal to updtream circuitry
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -173,6 +174,7 @@ module fpnew_fma_multi #(
     `FFL(inp_pipe_mask_q[i+1],     inp_pipe_mask_q[i],     reg_ena, '0)
     `FFL(inp_pipe_aux_q[i+1],      inp_pipe_aux_q[i],      reg_ena, '0)
   end
+  endgenerate
   // Output stage: assign selected pipe outputs to signals for later use
   assign operands_q = inp_pipe_operands_q[NUM_INP_REGS];
   assign src_fmt_q  = inp_pipe_src_fmt_q[NUM_INP_REGS];
@@ -189,7 +191,8 @@ module fpnew_fma_multi #(
   fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][2:0] info_q;
 
   // FP Input initialization
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_init_inputs
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : fmt_init_inputs
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -211,7 +214,7 @@ module fpnew_fma_multi #(
       for (genvar op = 0; op < 3; op++) begin : gen_operands
         assign trimmed_ops[op]       = operands_q[op][FP_WIDTH-1:0];
         assign fmt_sign[fmt][op]     = operands_q[op][FP_WIDTH-1];
-        assign fmt_exponent[fmt][op] = signed'({1'b0, operands_q[op][MAN_BITS+:EXP_BITS]});
+        assign fmt_exponent[fmt][op] = $signed({1'b0, operands_q[op][MAN_BITS+:EXP_BITS]});
         assign fmt_mantissa[fmt][op] = {info_q[fmt][op].is_normal, operands_q[op][MAN_BITS-1:0]} <<
                                        (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
       end
@@ -222,6 +225,7 @@ module fpnew_fma_multi #(
       assign fmt_mantissa[fmt]           = '{default: fpnew_pkg::DONT_CARE}; // format disabled
     end
   end
+  endgenerate
 
   fp_t                 operand_a, operand_b, operand_c;
   fpnew_pkg::fp_info_t info_a,    info_b,    info_c;
@@ -307,7 +311,8 @@ module fpnew_fma_multi #(
   logic [NUM_FORMATS-1:0]               fmt_result_is_special;
 
 
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_special_results
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_special_results
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -363,6 +368,7 @@ module fpnew_fma_multi #(
       assign fmt_result_is_special[fmt] = 1'b0;
     end
   end
+  endgenerate
 
   // Detect special case from source format, I2F casts don't produce a special result
   assign result_is_special = fmt_result_is_special[dst_fmt_q]; // they're all the same
@@ -379,23 +385,23 @@ module fpnew_fma_multi #(
   logic signed [EXP_WIDTH-1:0] tentative_exponent;
 
   // Zero-extend exponents into signed container - implicit width extension
-  assign exponent_a = signed'({1'b0, operand_a.exponent});
-  assign exponent_b = signed'({1'b0, operand_b.exponent});
-  assign exponent_c = signed'({1'b0, operand_c.exponent});
+  assign exponent_a = $signed({1'b0, operand_a.exponent});
+  assign exponent_b = $signed({1'b0, operand_b.exponent});
+  assign exponent_c = $signed({1'b0, operand_c.exponent});
 
   // Calculate internal exponents from encoded values. Real exponents are (ex = Ex - bias + 1 - nx)
   // with Ex the encoded exponent and nx the implicit bit. Internal exponents are biased to dst fmt.
   assign exponent_addend = info_c.is_zero ? 1 // in case the addend is zero, set minimum exp
-                           : signed'(exponent_c + $signed({1'b0, ~info_c.is_normal}) // 0 as subnorm
-                                     - signed'(fpnew_pkg::bias(src2_fmt_q))
-                                     + signed'(fpnew_pkg::bias(dst_fmt_q))); // rebias for dst fmt
+                           : $signed(exponent_c + $signed({1'b0, ~info_c.is_normal}) // 0 as subnorm
+                                     - $signed(fpnew_pkg::bias(src2_fmt_q))
+                                     + $signed(fpnew_pkg::bias(dst_fmt_q))); // rebias for dst fmt
   // Biased product exponent is the sum of encoded exponents minus the bias.
   assign exponent_product = (info_a.is_zero || info_b.is_zero) // in case the product is zero, set minimum exp.
-                            ? 2 - signed'(fpnew_pkg::bias(dst_fmt_q))
-                            : signed'(exponent_a + info_a.is_subnormal
+                            ? 2 - $signed(fpnew_pkg::bias(dst_fmt_q))
+                            : $signed(exponent_a + info_a.is_subnormal
                                       + exponent_b + info_b.is_subnormal
-                                      - 2*signed'(fpnew_pkg::bias(src_fmt_q))
-                                      + signed'(fpnew_pkg::bias(dst_fmt_q))); // rebias for dst fmt
+                                      - 2*$signed(fpnew_pkg::bias(src_fmt_q))
+                                      + $signed(fpnew_pkg::bias(dst_fmt_q))); // rebias for dst fmt
   // Exponent difference is the addend exponent minus the product exponent
   assign exponent_difference = exponent_addend - exponent_product;
 
@@ -404,11 +410,11 @@ module fpnew_fma_multi #(
 
   always_comb begin : addend_shift_amount
     // Product-anchored case, saturated shift (addend is only in the sticky bit)
-    if (exponent_difference <= signed'(-2 * PRECISION_BITS - 1))
+    if (exponent_difference <= $signed(-2 * PRECISION_BITS - 1))
       addend_shamt = 3 * PRECISION_BITS + 4;
     // Addend and product will have mutual bits to add
-    else if (exponent_difference <= signed'(PRECISION_BITS + 2))
-      addend_shamt = unsigned'(signed'(PRECISION_BITS) + 3 - exponent_difference);
+    else if (exponent_difference <= $signed(PRECISION_BITS + 2))
+      addend_shamt = $unsigned($signed(PRECISION_BITS) + 3 - exponent_difference);
     // Addend-anchored case, saturated shift (product is only in the sticky bit)
     else
       addend_shamt = 0;
@@ -429,7 +435,7 @@ module fpnew_fma_multi #(
     .empty_o (                    )
   );
 
-  assign addend_lzc_count_sgn = signed'({1'b0, addend_lzc_count});
+  assign addend_lzc_count_sgn = $signed({1'b0, addend_lzc_count});
 
   // Determine addend normalization shift amount (used for sum shifting in addend-ancored case)
   always_comb begin
@@ -582,6 +588,7 @@ module fpnew_fma_multi #(
   assign inp_pipe_ready[NUM_INP_REGS] = mid_pipe_ready[0];
 
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -611,6 +618,7 @@ module fpnew_fma_multi #(
     `FFL(mid_pipe_mask_q[i+1],        mid_pipe_mask_q[i],        reg_ena, '0)
     `FFL(mid_pipe_aux_q[i+1],         mid_pipe_aux_q[i],         reg_ena, '0)
   end
+  endgenerate
   // Output stage: assign selected pipe outputs to signals for later use
   assign effective_subtraction_q = mid_pipe_eff_sub_q[NUM_MID_REGS];
   assign exponent_product_q      = mid_pipe_exp_prod_q[NUM_MID_REGS];
@@ -656,7 +664,7 @@ module fpnew_fma_multi #(
     .empty_o ( lzc_zeroes         )
   );
 
-  assign leading_zero_count_sgn = signed'({1'b0, leading_zero_count});
+  assign leading_zero_count_sgn = $signed({1'b0, leading_zero_count});
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount
@@ -670,7 +678,7 @@ module fpnew_fma_multi #(
       // Subnormal result
       end else begin
         // Cap the shift distance to align mantissa with minimum exponent
-        norm_shamt          = unsigned'(signed'(PRECISION_BITS + 2 + exponent_product_q));
+        norm_shamt          = $unsigned($signed(PRECISION_BITS + 2 + exponent_product_q));
         normalized_exponent = 0; // subnormals encoded as 0
       end
     // Addend-anchored case
@@ -735,7 +743,8 @@ module fpnew_fma_multi #(
   assign uf_before_round = final_exponent == 0;               // exponent for subnormals capped to 0
 
   // Pack exponent and mantissa into proper rounding form
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_res_assemble
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_res_assemble
     // Set up some constants
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -766,6 +775,7 @@ module fpnew_fma_multi #(
       assign fmt_round_sticky_bits[fmt] = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
 
   // Assemble result before rounding. In case of overflow, the largest normal value is set.
   assign pre_round_sign     = final_sign_q;
@@ -790,7 +800,8 @@ module fpnew_fma_multi #(
 
   logic [NUM_FORMATS-1:0][WIDTH-1:0] fmt_result;
 
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_sign_inject
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_sign_inject
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -814,6 +825,7 @@ module fpnew_fma_multi #(
       assign fmt_result[fmt]         = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
 
   // Classification after rounding select by destination format
   assign uf_after_round = fmt_uf_after_round[dst_fmt_q2];
@@ -865,6 +877,7 @@ module fpnew_fma_multi #(
   // Input stage: Propagate pipeline ready signal to inside pipe
   assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -883,6 +896,7 @@ module fpnew_fma_multi #(
     `FFL(out_pipe_mask_q[i+1],   out_pipe_mask_q[i],   reg_ena, '0)
     `FFL(out_pipe_aux_q[i+1],    out_pipe_aux_q[i],    reg_ena, '0)
   end
+  endgenerate
   // Output stage: Ready travels backwards from output side, driven by downstream circuitry
   assign out_pipe_ready[NUM_OUT_REGS] = out_ready_i;
   // Output stage: assign module outputs
@@ -896,6 +910,7 @@ module fpnew_fma_multi #(
   assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
 
   // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  generate
   if (NUM_OUT_REGS > 0) begin
     assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
                                  out_pipe_valid_q[NUM_OUT_REGS-1]};
@@ -908,5 +923,6 @@ module fpnew_fma_multi #(
   end else begin
     assign early_out_valid_o = 1'b0;
   end
+  endgenerate
 
 endmodule

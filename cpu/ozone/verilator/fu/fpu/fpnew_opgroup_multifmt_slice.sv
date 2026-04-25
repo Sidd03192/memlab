@@ -67,6 +67,7 @@ module fpnew_opgroup_multifmt_slice #(
   output logic                                    early_out_valid_o
 );
 
+  generate
   if ((OpGroup == fpnew_pkg::DIVSQRT)) begin
     if ((DivSqrtSel == fpnew_pkg::TH32) && !((FpFmtConfig[0] == 1) && (FpFmtConfig[1:NUM_FORMATS-1] == '0))) begin
       $fatal(1, "T-Head-based DivSqrt unit supported only in FP32-only configurations. \
@@ -76,6 +77,7 @@ Set DivSqrtSel = THMULTI or DivSqrtSel = PULP to use a multi-format divider");
 FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8.");
     end
   end
+  endgenerate
 
   localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
   localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
@@ -142,11 +144,13 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
   assign target_aux_d  = {dst_vec_op, dst_is_cpk};
 
   // CONV passes one operand for assembly after the unit: opC for cpk, opB for others
+  generate
   if (OpGroup == fpnew_pkg::CONV) begin : conv_target
     assign conv_target_d = dst_is_cpk ? operands_i[2] : operands_i[1];
   end else begin : not_conv_target
     assign conv_target_d = '0;
   end
+  endgenerate
 
   // For 2-operand units, prepare boxing info
   logic [NUM_FORMATS-1:0]      is_boxed_1op;
@@ -162,8 +166,9 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
   // ---------------
   // Generate Lanes
   // ---------------
-  for (genvar lane = 0; lane < int'(NUM_LANES); lane++) begin : gen_num_lanes
-    localparam int unsigned LANE = unsigned'(lane); // unsigned to please the linter
+  generate
+  for (genvar lane = 0; lane < NUM_LANES; lane++) begin : gen_num_lanes
+    localparam int unsigned LANE = $unsigned(lane); // unsigned to please the linter
     // Get a mask of active formats for this lane
     localparam fpnew_pkg::fmt_logic_t ACTIVE_FORMATS =
         fpnew_pkg::get_lane_formats(Width, FpFmtConfig, LANE);
@@ -472,15 +477,19 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
       end
     end
   end
+  endgenerate
 
   // Extend slice result if needed
+  generate
   for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : extend_fp_result
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     if (NUM_LANES*FP_WIDTH < Width)
       assign fmt_slice_result[fmt][Width-1:NUM_LANES*FP_WIDTH] = '{default: lane_ext_bit[0]};
   end
+  endgenerate
 
+  generate
   for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : extend_or_mute_int_result
     // Mute int results if unused
     if (OpGroup != fpnew_pkg::CONV) begin : mute_int_result
@@ -494,8 +503,10 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
         assign ifmt_slice_result[ifmt][Width-1:NUM_LANES*INT_WIDTH] = '0;
     end
   end
+  endgenerate
 
   // Bypass lanes with target operand for vectorial casts
+  generate
   if (OpGroup == fpnew_pkg::CONV) begin : target_regs
     // Bypass pipeline signals, index i holds signal after i register stages
     logic [0:NumPipeRegs][Width-1:0] byp_pipe_target_q;
@@ -535,7 +546,9 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
     assign {result_vec_op, result_is_cpk} = '0;
     assign conv_target_q = '0;
   end
+  endgenerate
 
+  generate
   if ((DivSqrtSel != fpnew_pkg::TH32) && !ExtRegEna) begin
     // Synch lanes if there is more than one
     assign simd_synch_rdy  = EnableVectors ? &divsqrt_ready[NUM_DIVSQRT_LANES-1:0] : divsqrt_ready[0];
@@ -545,6 +558,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
     assign simd_synch_rdy  = '0;
     assign simd_synch_done = '0;
   end
+  endgenerate
 
   // ------------
   // Output Side
@@ -567,7 +581,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
     // Collapse the status
     automatic fpnew_pkg::status_t temp_status;
     temp_status = '0;
-    for (int i = 0; i < int'(NUM_LANES); i++)
+    for (int i = 0; i < NUM_LANES; i++)
       temp_status |= lane_status[i] & {5{lane_masks[i]}};
     status_o = temp_status;
   end

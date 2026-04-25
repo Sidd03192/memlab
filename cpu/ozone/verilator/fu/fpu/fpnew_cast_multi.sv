@@ -145,6 +145,7 @@ module fpnew_cast_multi #(
   // Input stage: Propagate pipeline ready signal to updtream circuitry
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -169,6 +170,7 @@ module fpnew_cast_multi #(
     `FFL(inp_pipe_mask_q[i+1],     inp_pipe_mask_q[i],     reg_ena, '0)
     `FFL(inp_pipe_aux_q[i+1],      inp_pipe_aux_q[i],      reg_ena, '0)
   end
+  endgenerate
   // Output stage: assign selected pipe outputs to signals for later use
   assign operands_q = inp_pipe_operands_q[NUM_INP_REGS];
   assign is_boxed_q = inp_pipe_is_boxed_q[NUM_INP_REGS];
@@ -199,7 +201,8 @@ module fpnew_cast_multi #(
   logic [INT_MAN_WIDTH-1:0]                      int_value, int_mantissa;
 
   // FP Input initialization
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_init_inputs
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : fmt_init_inputs
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -219,10 +222,10 @@ module fpnew_cast_multi #(
       );
 
       assign fmt_sign[fmt]     = operands_q[FP_WIDTH-1];
-      assign fmt_exponent[fmt] = signed'({1'b0, operands_q[MAN_BITS+:EXP_BITS]});
+      assign fmt_exponent[fmt] = $signed({1'b0, operands_q[MAN_BITS+:EXP_BITS]});
       assign fmt_mantissa[fmt] = {info[fmt].is_normal, operands_q[MAN_BITS-1:0]}; // zero pad
       // Compensation for the difference in mantissa widths used for leading-zero count
-      assign fmt_shift_compensation[fmt] = signed'(INT_MAN_WIDTH - 1 - MAN_BITS);
+      assign fmt_shift_compensation[fmt] = $signed(INT_MAN_WIDTH - 1 - MAN_BITS);
     end else begin : inactive_format
       assign info[fmt]                   = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_sign[fmt]               = fpnew_pkg::DONT_CARE;             // format disabled
@@ -231,9 +234,11 @@ module fpnew_cast_multi #(
       assign fmt_shift_compensation[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
     end
   end
+  endgenerate
 
   // Sign-extend INT input
-  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_sign_extend_int
+  generate
+  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_sign_extend_int
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -247,11 +252,12 @@ module fpnew_cast_multi #(
       assign ifmt_input_val[ifmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
     end
   end
+  endgenerate
 
   // Construct input mantissa from integer
   assign int_value    = ifmt_input_val[int_fmt_q];
   assign int_sign     = int_value[INT_MAN_WIDTH-1] & ~op_mod_q; // only signed ints are negative
-  assign int_mantissa = int_sign ? unsigned'(-int_value) : int_value; // get magnitude of negative
+  assign int_mantissa = int_sign ? $unsigned(-int_value) : int_value; // get magnitude of negative
 
   // select mantissa with source format
   assign encoded_mant = src_is_int ? int_mantissa : fmt_mantissa[src_fmt_q];
@@ -264,9 +270,9 @@ module fpnew_cast_multi #(
   logic signed [INT_EXP_WIDTH-1:0] src_subnormal; // src is subnormal
   logic signed [INT_EXP_WIDTH-1:0] src_offset;    // src offset within mantissa
 
-  assign src_bias      = signed'(fpnew_pkg::bias(src_fmt_q));
+  assign src_bias      = $signed(fpnew_pkg::bias(src_fmt_q));
   assign src_exp       = fmt_exponent[src_fmt_q];
-  assign src_subnormal = signed'({1'b0, info[src_fmt_q].is_subnormal});
+  assign src_subnormal = $signed({1'b0, info[src_fmt_q].is_subnormal});
   assign src_offset    = fmt_shift_compensation[src_fmt_q];
 
   logic                            input_sign;   // input sign
@@ -290,23 +296,23 @@ module fpnew_cast_multi #(
     .cnt_o   ( renorm_shamt ),
     .empty_o ( mant_is_zero )
   );
-  assign renorm_shamt_sgn = signed'({1'b0, renorm_shamt});
+  assign renorm_shamt_sgn = $signed({1'b0, renorm_shamt});
 
   // Get the sign from the proper source
   assign input_sign = src_is_int ? int_sign : fmt_sign[src_fmt_q];
   // Realign input mantissa, append zeroes if destination is wider
   assign input_mant = encoded_mant << renorm_shamt;
   // Unbias exponent and compensate for shift
-  assign fp_input_exp  = signed'(src_exp + src_subnormal - src_bias -
+  assign fp_input_exp  = $signed(src_exp + src_subnormal - src_bias -
                                  renorm_shamt_sgn + src_offset); // compensate for shift
-  assign int_input_exp = signed'(INT_MAN_WIDTH - 1 - renorm_shamt_sgn);
+  assign int_input_exp = $signed(INT_MAN_WIDTH - 1 - renorm_shamt_sgn);
 
   assign input_exp     = src_is_int ? int_input_exp : fp_input_exp;
 
   logic signed [INT_EXP_WIDTH-1:0] destination_exp;  // re-biased exponent for destination
 
   // Rebias the exponent
-  assign destination_exp = input_exp + signed'(fpnew_pkg::bias(dst_fmt_q));
+  assign destination_exp = input_exp + $signed(fpnew_pkg::bias(dst_fmt_q));
 
   // ---------------
   // Internal pipeline
@@ -370,6 +376,7 @@ module fpnew_cast_multi #(
   assign inp_pipe_ready[NUM_INP_REGS] = mid_pipe_ready[0];
 
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -399,6 +406,7 @@ module fpnew_cast_multi #(
     `FFL(mid_pipe_mask_q[i+1],       mid_pipe_mask_q[i],       reg_ena, '0)
     `FFL(mid_pipe_aux_q[i+1],        mid_pipe_aux_q[i],        reg_ena, '0)
   end
+  endgenerate
   // Output stage: assign selected pipe outputs to signals for later use
   assign input_sign_q      = mid_pipe_input_sign_q[NUM_MID_REGS];
   assign input_exp_q       = mid_pipe_input_exp_q[NUM_MID_REGS];
@@ -433,7 +441,7 @@ module fpnew_cast_multi #(
   // Perform adjustments to mantissa and exponent
   always_comb begin : cast_value
     // Default assignment
-    final_exp       = unsigned'(destination_exp_q); // take exponent as is, only look at lower bits
+    final_exp       = $unsigned(destination_exp_q); // take exponent as is, only look at lower bits
     preshift_mant   = '0;  // initialize mantissa container with zeroes
     denorm_shamt    = SUPER_MAN_BITS - fpnew_pkg::man_bits(dst_fmt_q2); // right of mantissa
     of_before_round = 1'b0;
@@ -445,12 +453,12 @@ module fpnew_cast_multi #(
     // Handle INT casts
     if (dst_is_int_q) begin
       // By default right shift mantissa to be an integer
-      denorm_shamt = unsigned'(MAX_INT_WIDTH - 1 - input_exp_q);
+      denorm_shamt = $unsigned(MAX_INT_WIDTH - 1 - input_exp_q);
       // overflow: when converting to unsigned the range is larger by one
-      if ((input_exp_q >= signed'(fpnew_pkg::int_width(int_fmt_q2) - 1 + op_mod_q2))    // Exponent larger than max int range,
+      if ((input_exp_q >= $signed(fpnew_pkg::int_width(int_fmt_q2) - 1 + op_mod_q2))    // Exponent larger than max int range,
           && !(!op_mod_q2                                                               // unless cast to signed int
                && input_sign_q                                                          // and input value is larges negative int value
-               && (input_exp_q == signed'(fpnew_pkg::int_width(int_fmt_q2) - 1))
+               && (input_exp_q == $signed(fpnew_pkg::int_width(int_fmt_q2) - 1))
                && (input_mant_q == {1'b1, {INT_MAN_WIDTH-1{1'b0}}}))) begin
         denorm_shamt    = '0; // prevent shifting
         of_before_round = 1'b1;
@@ -463,23 +471,23 @@ module fpnew_cast_multi #(
     end else begin
       // Infinities
       if (~src_is_int_q && info_q.is_inf) begin
-        final_exp       = unsigned'(2**fpnew_pkg::exp_bits(dst_fmt_q2)-1); // largest exponent
+        final_exp       = $unsigned(2**fpnew_pkg::exp_bits(dst_fmt_q2)-1); // largest exponent
         preshift_mant   = '0;
       // Overflow (for proper rounding)
-      end else if (destination_exp_q >= signed'(2**fpnew_pkg::exp_bits(dst_fmt_q2))-1) begin
-        final_exp       = unsigned'(2**fpnew_pkg::exp_bits(dst_fmt_q2)-2); // largest normal value
+      end else if (destination_exp_q >= $signed(2**fpnew_pkg::exp_bits(dst_fmt_q2))-1) begin
+        final_exp       = $unsigned(2**fpnew_pkg::exp_bits(dst_fmt_q2)-2); // largest normal value
         preshift_mant   = '1;                           // largest normal value and RS bits set
         of_before_round = 1'b1;
       // Denormalize underflowing values
       end else if (destination_exp_q < 1 &&
-                   destination_exp_q >= -signed'(fpnew_pkg::man_bits(dst_fmt_q2))) begin
+                   destination_exp_q >= -$signed(fpnew_pkg::man_bits(dst_fmt_q2))) begin
         final_exp       = '0; // denormal result
-        denorm_shamt    = unsigned'(denorm_shamt + 1 - destination_exp_q); // adjust right shifting
+        denorm_shamt    = $unsigned(denorm_shamt + 1 - destination_exp_q); // adjust right shifting
         uf_before_round = 1'b1;
       // Limit the shift to retain sticky bits
-      end else if (destination_exp_q < -signed'(fpnew_pkg::man_bits(dst_fmt_q2))) begin
+      end else if (destination_exp_q < -$signed(fpnew_pkg::man_bits(dst_fmt_q2))) begin
         final_exp       = '0; // denormal result
-        denorm_shamt    = unsigned'(denorm_shamt + 2 + fpnew_pkg::man_bits(dst_fmt_q2)); // to sticky
+        denorm_shamt    = $unsigned(denorm_shamt + 2 + fpnew_pkg::man_bits(dst_fmt_q2)); // to sticky
         uf_before_round = 1'b1;
       end
     end
@@ -526,7 +534,8 @@ module fpnew_cast_multi #(
 
 
   // Pack exponent and mantissa into proper rounding form
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_res_assemble
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_res_assemble
     // Set up some constants
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -539,9 +548,11 @@ module fpnew_cast_multi #(
       assign fmt_pre_round_abs[fmt] = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
 
   // Zero-extend integer result
-  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_zero_ext
+  generate
+  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_res_zero_ext
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -555,6 +566,7 @@ module fpnew_cast_multi #(
       assign ifmt_pre_round_abs[ifmt] = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
 
   // Select output with destination format and operation
   assign pre_round_abs = dst_is_int_q ? ifmt_pre_round_abs[int_fmt_q2] : fmt_pre_round_abs[dst_fmt_q2];
@@ -575,7 +587,8 @@ module fpnew_cast_multi #(
   logic [NUM_FORMATS-1:0][WIDTH-1:0] fmt_result;
 
   // Detect overflows and inject sign
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_sign_inject
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_sign_inject
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -599,12 +612,14 @@ module fpnew_cast_multi #(
       assign fmt_result[fmt]         = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
 
   // Negative integer result needs to be brought into two's complement
-  assign rounded_uint_res      = rounded_sign ? unsigned'(-rounded_abs) : rounded_abs;
+  assign rounded_uint_res      = rounded_sign ? $unsigned(-rounded_abs) : rounded_abs;
 
     // Sign-extend integer result
-  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_res_sign_ext
+  generate
+  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_res_sign_ext
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -618,12 +633,14 @@ module fpnew_cast_multi #(
       assign ifmt_rounded_signed_res[ifmt] = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
   
   assign rounded_int_res = ifmt_rounded_signed_res[int_fmt_q2];
   assign rounded_int_res_zero = (rounded_int_res == '0);
 
   // Detect integer overflows after rounding (only positives)
-  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_int_overflow
+  generate
+  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_int_overflow
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -631,7 +648,7 @@ module fpnew_cast_multi #(
       always_comb begin : detect_overflow
         ifmt_of_after_round[ifmt] = 1'b0;
         // Int result can overflow if we're at the max exponent
-        if (!rounded_sign && input_exp_q == signed'(INT_WIDTH - 2 + op_mod_q2)) begin
+        if (!rounded_sign && input_exp_q == $signed(INT_WIDTH - 2 + op_mod_q2)) begin
           // Check whether the rounded MSB differs from unrounded MSB
           ifmt_of_after_round[ifmt] = ~rounded_int_res[INT_WIDTH-2+op_mod_q2];
         end
@@ -640,6 +657,7 @@ module fpnew_cast_multi #(
       assign ifmt_of_after_round[ifmt] = fpnew_pkg::DONT_CARE;
     end
   end
+  endgenerate
 
   // Classification after rounding select by destination format
   assign uf_after_round = fmt_uf_after_round[dst_fmt_q2];
@@ -655,7 +673,8 @@ module fpnew_cast_multi #(
   logic [NUM_FORMATS-1:0][WIDTH-1:0] fmt_special_result;
 
   // Special result construction
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_special_results
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_special_results
     // Set up some constants
     localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
     localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -679,6 +698,7 @@ module fpnew_cast_multi #(
       assign fmt_special_result[fmt] = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
 
   // Detect special case from source format, I2F casts don't produce a special result
   assign fp_result_is_special = ~src_is_int_q & (info_q.is_zero |
@@ -701,7 +721,8 @@ module fpnew_cast_multi #(
   logic [NUM_INT_FORMATS-1:0][WIDTH-1:0] ifmt_special_result;
 
   // Special result construction
-  for (genvar ifmt = 0; ifmt < int'(NUM_INT_FORMATS); ifmt++) begin : gen_special_results_int
+  generate
+  for (genvar ifmt = 0; ifmt < NUM_INT_FORMATS; ifmt++) begin : gen_special_results_int
     // Set up some constants
     localparam int unsigned INT_WIDTH = fpnew_pkg::int_width(fpnew_pkg::int_format_e'(ifmt));
 
@@ -725,6 +746,7 @@ module fpnew_cast_multi #(
       assign ifmt_special_result[ifmt] = '{default: fpnew_pkg::DONT_CARE};
     end
   end
+  endgenerate
 
   // Detect special case from source format (inf, nan, overflow, nan-boxing or negative unsigned)
   assign int_result_is_special = info_q.is_nan | info_q.is_inf |
@@ -795,6 +817,7 @@ module fpnew_cast_multi #(
   // Input stage: Propagate pipeline ready signal to inside pipe
   assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -814,6 +837,7 @@ module fpnew_cast_multi #(
     `FFL(out_pipe_mask_q[i+1],    out_pipe_mask_q[i],    reg_ena, '0)
     `FFL(out_pipe_aux_q[i+1],     out_pipe_aux_q[i],     reg_ena, '0)
   end
+  endgenerate
   // Output stage: Ready travels backwards from output side, driven by downstream circuitry
   assign out_pipe_ready[NUM_OUT_REGS] = out_ready_i;
   // Output stage: assign module outputs
@@ -827,6 +851,7 @@ module fpnew_cast_multi #(
   assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
 
   // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  generate
   if (NUM_OUT_REGS > 0) begin
     assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
                                  out_pipe_valid_q[NUM_OUT_REGS-1]};
@@ -839,5 +864,6 @@ module fpnew_cast_multi #(
   end else begin
     assign early_out_valid_o = 1'b0;
   end
+  endgenerate
 
 endmodule

@@ -118,6 +118,7 @@ module fpnew_divsqrt_th_64_multi #(
   // Input stage: Propagate pipeline ready signal to upstream circuitry
   assign in_ready_o = inp_pipe_ready[0];
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_INP_REGS; i++) begin : gen_input_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -139,6 +140,7 @@ module fpnew_divsqrt_th_64_multi #(
     `FFL(inp_pipe_aux_q[i+1],      inp_pipe_aux_q[i],      reg_ena, '0)
     `FFL(inp_pipe_vec_op_q[i+1],   inp_pipe_vec_op_q[i],   reg_ena, '0)
   end
+  endgenerate
   // Output stage: assign selected pipe outputs to signals for later use
   assign operands_q = inp_pipe_operands_q[NUM_INP_REGS];
   assign rnd_mode_q = inp_pipe_rnd_mode_q[NUM_INP_REGS];
@@ -147,11 +149,13 @@ module fpnew_divsqrt_th_64_multi #(
   assign in_valid_q = inp_pipe_valid_q[NUM_INP_REGS];
 
   logic last_inp_reg_ena;
+  generate
   if (NUM_INP_REGS >= 1) begin : gen_last_inp_reg_ena_valid
     assign last_inp_reg_ena = reg_ena_i[NUM_INP_REGS-1];
   end else begin : gen_last_inp_reg_ena_zero
     assign last_inp_reg_ena = 1'b0;
   end
+  endgenerate
 
   logic ext_op_start_q;
   `FF(ext_op_start_q, last_inp_reg_ena, 1'b0)
@@ -414,6 +418,7 @@ module fpnew_divsqrt_th_64_multi #(
   // Input stage: Propagate pipeline ready signal to inside pipe
   assign out_ready = out_pipe_ready[0];
   // Generate the register stages
+  generate
   for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
     // Internal register enable for this stage
     logic reg_ena;
@@ -432,6 +437,7 @@ module fpnew_divsqrt_th_64_multi #(
     `FFL(out_pipe_mask_q[i+1],   out_pipe_mask_q[i],   reg_ena, '0)
     `FFL(out_pipe_aux_q[i+1],    out_pipe_aux_q[i],    reg_ena, '0)
   end
+  endgenerate
   // Output stage: Ready travels backwards from output side, driven by downstream circuitry
   assign out_pipe_ready[NUM_OUT_REGS] = out_ready_i;
   // Output stage: assign module outputs
@@ -445,6 +451,7 @@ module fpnew_divsqrt_th_64_multi #(
   assign busy_o          = (| {inp_pipe_valid_q, unit_busy, out_pipe_valid_q});
 
   // Early valid_o signal. This is used for dispatching instructions for dual-issue processor.
+  generate
   if (NUM_OUT_REGS > 0) begin
     assign early_out_valid_o = |{out_pipe_valid_q[NUM_OUT_REGS] & ~out_pipe_ready[NUM_OUT_REGS],
                                  out_pipe_valid_q[NUM_OUT_REGS-1]};
@@ -454,4 +461,5 @@ module fpnew_divsqrt_th_64_multi #(
   end else begin
     assign early_out_valid_o = 1'b0;
   end
+  endgenerate
 endmodule

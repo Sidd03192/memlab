@@ -320,7 +320,7 @@ package fpnew_pkg;
     automatic int unsigned res = 0;
     for (int unsigned i = 0; i < NUM_FP_FORMATS; i++)
       if (cfg[i])
-        res = unsigned'(maximum(res, fp_width(fp_format_e'(i))));
+        res = $unsigned(maximum(res, fp_width(fp_format_e'(i))));
     return res;
   endfunction
 
@@ -329,7 +329,7 @@ package fpnew_pkg;
     automatic int unsigned res = max_fp_width(cfg);
     for (int unsigned i = 0; i < NUM_FP_FORMATS; i++)
       if (cfg[i])
-        res = unsigned'(minimum(res, fp_width(fp_format_e'(i))));
+        res = $unsigned(minimum(res, fp_width(fp_format_e'(i))));
     return res;
   endfunction
 
@@ -345,7 +345,7 @@ package fpnew_pkg;
 
   // Returns the bias value for a given format (as per IEEE 754-2008)
   function automatic int unsigned bias(fp_format_e fmt);
-    return unsigned'(2**(FP_ENCODINGS[fmt].exp_bits-1)-1); // symmetrical bias
+    return $unsigned(2**(FP_ENCODINGS[fmt].exp_bits-1)-1); // symmetrical bias
   endfunction
 
   function automatic fp_encoding_t super_format(fmt_logic_t cfg);
@@ -353,8 +353,8 @@ package fpnew_pkg;
     res = '0;
     for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++)
       if (cfg[fmt]) begin // only active format
-        res.exp_bits = unsigned'(maximum(res.exp_bits, exp_bits(fp_format_e'(fmt))));
-        res.man_bits = unsigned'(maximum(res.man_bits, man_bits(fp_format_e'(fmt))));
+        res.exp_bits = $unsigned(maximum(res.exp_bits, exp_bits(fp_format_e'(fmt))));
+        res.man_bits = $unsigned(maximum(res.man_bits, man_bits(fp_format_e'(fmt))));
       end
     return res;
   endfunction

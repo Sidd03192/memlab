@@ -78,6 +78,7 @@ module fpnew_top_core #(
   // -----------------------------------------------------------------------
   // Opgroup block instantiation
   // -----------------------------------------------------------------------
+  generate
   for (genvar g = 0; g < NUM_OPGROUPS; g++) begin : gen_opgroups
     // Only instantiate if at least one format is enabled for this opgroup
     if (|Implementation.UnitTypes[g]) begin : active
@@ -129,6 +130,7 @@ module fpnew_top_core #(
       assign opgrp_tag[g]         = '0;
     end
   end
+  endgenerate
 
   // -----------------------------------------------------------------------
   // Input handshake: ready when the target opgroup is ready

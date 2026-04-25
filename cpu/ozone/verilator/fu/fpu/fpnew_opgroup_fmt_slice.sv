@@ -61,7 +61,7 @@ module fpnew_opgroup_fmt_slice #(
 );
 
   localparam int unsigned FP_WIDTH  = fpnew_pkg::fp_width(FpFormat);
-  localparam int unsigned SIMD_WIDTH = unsigned'(Width/NUM_LANES);
+  localparam int unsigned SIMD_WIDTH = $unsigned(Width/NUM_LANES);
 
 
   logic [NUM_LANES-1:0] lane_in_ready, lane_out_valid; // Handshake signals for the lanes
@@ -89,7 +89,8 @@ module fpnew_opgroup_fmt_slice #(
   // ---------------
   // Generate Lanes
   // ---------------
-  for (genvar lane = 0; lane < int'(NUM_LANES); lane++) begin : gen_num_lanes
+  generate
+  for (genvar lane = 0; lane < NUM_LANES; lane++) begin : gen_num_lanes
     logic [FP_WIDTH-1:0] local_result; // lane-local results
     logic                local_sign;
 
@@ -104,8 +105,8 @@ module fpnew_opgroup_fmt_slice #(
       assign in_valid = in_valid_i & ((lane == 0) | vectorial_op); // upper lanes only for vectors
       // Slice out the operands for this lane
       always_comb begin : prepare_input
-        for (int i = 0; i < int'(NUM_OPERANDS); i++) begin
-          local_operands[i] = operands_i[i][(unsigned'(lane)+1)*FP_WIDTH-1:unsigned'(lane)*FP_WIDTH];
+        for (int i = 0; i < NUM_OPERANDS; i++) begin
+          local_operands[i] = operands_i[i][($unsigned(lane)+1)*FP_WIDTH-1:$unsigned(lane)*FP_WIDTH];
         end
       end
 
@@ -232,7 +233,7 @@ module fpnew_opgroup_fmt_slice #(
     end
 
     // Insert lane result into slice result
-    assign slice_result[(unsigned'(lane)+1)*FP_WIDTH-1:unsigned'(lane)*FP_WIDTH] = local_result;
+    assign slice_result[($unsigned(lane)+1)*FP_WIDTH-1:$unsigned(lane)*FP_WIDTH] = local_result;
 
     // Create Classification results
     if (TrueSIMDClass && SIMD_WIDTH >= 10) begin : vectorial_true_class // true vectorial class blocks are 10bits in size
@@ -260,6 +261,7 @@ module fpnew_opgroup_fmt_slice #(
       };
     end
   end
+  endgenerate
 
   // ------------
   // Output Side
@@ -272,11 +274,13 @@ module fpnew_opgroup_fmt_slice #(
   localparam int unsigned CLASS_VEC_BITS = (NUM_LANES*8 > Width) ? 8 * (Width / 8) : NUM_LANES*8;
 
   // Pad out unused vec_class bits if each classify result is on 8 bits
+  generate
   if (!(TrueSIMDClass && SIMD_WIDTH >= 10)) begin
     if (CLASS_VEC_BITS < Width) begin : pad_vectorial_class
       assign slice_vec_class_result[Width-1:CLASS_VEC_BITS] = '0;
     end
   end
+  endgenerate
 
   // localparam logic [Width-1:0] CLASS_VEC_MASK = 2**CLASS_VEC_BITS - 1;
 
@@ -297,7 +301,7 @@ module fpnew_opgroup_fmt_slice #(
     // Collapse the status
     automatic fpnew_pkg::status_t temp_status;
     temp_status = '0;
-    for (int i = 0; i < int'(NUM_LANES); i++)
+    for (int i = 0; i < NUM_LANES; i++)
       temp_status |= lane_status[i] & {5{lane_masks[i]}};
     status_o = temp_status;
   end

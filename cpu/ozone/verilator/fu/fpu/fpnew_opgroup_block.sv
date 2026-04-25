@@ -85,7 +85,8 @@ module fpnew_opgroup_block #(
   // -------------------------
   // Generate Parallel Slices
   // -------------------------
-  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_parallel_slices
+  generate
+  for (genvar fmt = 0; fmt < NUM_FORMATS; fmt++) begin : gen_parallel_slices
     // Some constants for this format
     localparam logic ANY_MERGED = fpnew_pkg::any_enabled_multi(FmtUnitTypes, FpFmtMask);
     localparam logic IS_FIRST_MERGED =
@@ -142,7 +143,7 @@ module fpnew_opgroup_block #(
 
       localparam FMT = fpnew_pkg::get_first_enabled_multi(FmtUnitTypes, FpFmtMask);
       // Ready is split up into formats
-      assign fmt_in_ready[fmt]  = fmt_in_ready[int'(FMT)];
+      assign fmt_in_ready[fmt]  = fmt_in_ready[FMT];
 
       assign fmt_out_valid[fmt] = 1'b0; // don't emit values
       assign fmt_busy[fmt]      = 1'b0; // never busy
@@ -165,10 +166,12 @@ module fpnew_opgroup_block #(
       assign early_valid[fmt] = 1'b0;
     end
   end
+  endgenerate
 
   // ----------------------
   // Generate Merged Slice
   // ----------------------
+  generate
   if (fpnew_pkg::any_enabled_multi(FmtUnitTypes, FpFmtMask)) begin : gen_merged_slice
 
     localparam FMT = fpnew_pkg::get_first_enabled_multi(FmtUnitTypes, FpFmtMask);
@@ -217,6 +220,7 @@ module fpnew_opgroup_block #(
     );
 
   end
+  endgenerate
 
   // ------------------
   // Arbitrate Outputs
