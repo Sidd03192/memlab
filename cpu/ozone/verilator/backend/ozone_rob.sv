@@ -56,6 +56,7 @@ module ozone_rob
     output logic [63:0]                 bp_update_pc,
     output logic                        bp_update_taken,
     output logic [63:0]                 bp_update_target,
+    output logic [BP_GHR_WIDTH-1:0]     bp_update_ghr,
 
     // flush TODO: make sure clera on this
     output logic                        flush,              // flush entire pipeline
@@ -74,6 +75,8 @@ module ozone_rob
     logic                    head_can_commit;
     logic                    do_alloc;
     logic                    branch_flush_commit;
+    logic                    branch_mispredict;
+    logic [63:0]             branch_recovery_pc;
 
     // Full/empty detection
     assign rob_full = (count == ROB_DEPTH);
@@ -124,6 +127,8 @@ module ozone_rob
         head_can_commit     = (count != '0) && head_entry.valid && head_entry.ready;
         do_alloc            = alloc_valid && ((count != ROB_DEPTH) || head_can_commit);
         branch_flush_commit = 1'b0;
+        branch_mispredict   = 1'b0;
+        branch_recovery_pc  = head_entry.PC + 64'd4;
 
         commit_valid        = head_can_commit;
         commit_data         = head_entry;
@@ -156,6 +161,7 @@ module ozone_rob
         bp_update_pc        = '0;
         bp_update_taken     = 1'b0;
         bp_update_target    = '0;
+        bp_update_ghr       = '0;
 
         flush               = 1'b0;
         flush_target_pc     = '0;
@@ -171,9 +177,22 @@ module ozone_rob
             exception_code  = head_entry.exc_code;
             branch_flush_commit = 1'b1;
         end else if (head_can_commit && head_entry.inst_type == ROB_TYPE_BRANCH) begin
-            if (head_entry.br_taken) begin
+            bp_update_valid  = 1'b1;
+            bp_update_pc     = head_entry.PC;
+            bp_update_taken  = head_entry.br_taken;
+            bp_update_target = head_entry.br_target;
+            bp_update_ghr    = head_entry.pred_ghr;
+
+            if (head_entry.br_taken != head_entry.pred_taken) begin
+                branch_mispredict = 1'b1;
+            end else if (head_entry.br_taken &&
+                         (head_entry.br_target != head_entry.pred_target)) begin
+                branch_mispredict = 1'b1;
+            end
+
+            if (branch_mispredict) begin
                 flush           = 1'b1;
-                flush_target_pc = head_entry.br_target;
+                flush_target_pc = head_entry.br_taken ? head_entry.br_target : branch_recovery_pc;
                 branch_flush_commit = 1'b1;
             end
         end

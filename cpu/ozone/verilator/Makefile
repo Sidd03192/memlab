@@ -31,6 +31,8 @@ FILES = types.sv \
 	Top.sv \
 	frontend/ozone_itlb.sv \
 	frontend/ozone_decode.sv \
+	frontend/ozone_btb.sv \
+	frontend/ozone_bpred.sv \
 	backend/ozone_dispatch.sv \
 	backend/ozone_rob.sv \
 	backend/ozone_regstate.sv \

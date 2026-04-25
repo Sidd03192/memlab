@@ -316,6 +316,7 @@ module tb_ozone_backend;
         .bp_update_pc(bp_update_pc),
         .bp_update_taken(bp_update_taken),
         .bp_update_target(bp_update_target),
+        .bp_update_ghr(),
         .flush(pipe_flush),
         .flush_target_pc(flush_target_pc),
         .exception_valid(exception_valid),

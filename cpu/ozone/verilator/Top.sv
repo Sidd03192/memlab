@@ -137,11 +137,18 @@ module Top
     logic [63:0] bp_update_pc;
     logic        bp_update_taken;
     logic [63:0] bp_update_target;
+    logic [BP_GHR_WIDTH-1:0] bp_update_ghr;
     logic        pipe_flush;
     logic [63:0] flush_target_pc;
     logic        exception_valid;
     logic [63:0] exception_pc;
     logic [3:0]  exception_code;
+
+    logic [47:0] btb_pred_target;
+    logic        btb_pred_hit;
+    logic        bpred_take;
+    logic [BP_GHR_WIDTH-1:0] bpred_ghr_snapshot;
+    logic        fetch_pred_taken;
 
     logic             adder_alloc_valid, adder_full, adder_granted;
     rs_entry_add_t    adder_alloc_entry;
@@ -174,10 +181,41 @@ module Top
 
     assign core_flush = pipe_flush || sim_finish_pending;
     assign halt_fetch = core_flush;
+    assign fetch_pred_taken = btb_pred_hit && bpred_take;
     assign ret_zero_redirect = commit_valid &&
                                commit_data.inst_type == ROB_TYPE_BRANCH &&
                                commit_data.br_taken &&
                                commit_data.br_target == 64'b0;
+
+    ozone_btb #(
+        .VADDR_WIDTH       (48),
+        .INSTR_OFFSET_WIDTH(2),
+        .BTB_SETS          (8)
+    ) ozone_btb_i (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .pred_pc_in     (pc),
+        .pred_vaddr_out (btb_pred_target),
+        .pred_hit_out   (btb_pred_hit),
+        .resolve_v_in   (bp_update_valid),
+        .resolve_pc_in  (bp_update_pc[47:0]),
+        .resolve_vaddr_in(bp_update_target[47:0])
+    );
+
+    ozone_bpred #(
+        .VADDR_WIDTH(48),
+        .GHR_WIDTH  (BP_GHR_WIDTH)
+    ) ozone_bpred_i (
+        .clk             (clk),
+        .rst_n           (rst_n),
+        .pred_pc_in      (pc),
+        .take_out        (bpred_take),
+        .ghr_snapshot_out(bpred_ghr_snapshot),
+        .resolve_v_in    (bp_update_valid),
+        .resolve_taken_in(bp_update_taken),
+        .resolve_pc_in   (bp_update_pc[47:0]),
+        .resolve_ghr_in  (bp_update_ghr)
+    );
 
     ozone_itlb ozone_itlb (
         .clk_i         (clk),
@@ -201,6 +239,9 @@ module Top
         .flush        (core_flush),
         .the_insn_bits(insn_bits),
         .the_insn_pc  (pc),
+        .pred_taken_in(fetch_pred_taken),
+        .pred_target_in(btb_pred_target),
+        .pred_ghr_in  (bpred_ghr_snapshot),
         .insn_ready   (insn_ready),
         .ready_for_uop(ready_for_uop),
         .decoder_ready(decoder_ready),
@@ -337,6 +378,7 @@ module Top
         .bp_update_pc   (bp_update_pc),
         .bp_update_taken(bp_update_taken),
         .bp_update_target(bp_update_target),
+        .bp_update_ghr  (bp_update_ghr),
         .flush          (pipe_flush),
         .flush_target_pc(flush_target_pc),
         .exception_valid(exception_valid),
@@ -613,7 +655,7 @@ module Top
             // architectural ACTLR write path didn't trip done first.
             if (commit_valid
                 && cur_el == 2'd1
-                && commit_data.inst_type == 1
+                && commit_data.inst_type == ROB_TYPE_BRANCH
                 && commit_data.PC == (vbar_el1[47:0] + 48'h410)
                 && commit_data.br_taken
                 && commit_data.br_target[47:0] == commit_data.PC[47:0]) begin
@@ -852,7 +894,7 @@ module Top
                                 state7_sent <= 1'b1;
                             end else if (decoder_ready) begin
                                 $display("[TOP] decoder consumed pc=0x%012h", pc);
-                                pc <= pc + 48'd4;
+                                pc <= fetch_pred_taken ? btb_pred_target : (pc + 48'd4);
                                 state <= 0;
                                 state7_sent <= 1'b0;
                             end

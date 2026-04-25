@@ -353,6 +353,12 @@ always_comb begin
     rob_alloc_data.sysreg_read = cur.sysreg_read;
     rob_alloc_data.sysreg_id   = cur.sysreg_id;
     rob_alloc_data.is_eret     = (cur.uop_type == UOP_ERET);
+    rob_alloc_data.pred_taken  = ((cur.check_target) || (cur.uop_type == UOP_ERET)) ?
+                                 cur.pred_taken : 1'b0;
+    rob_alloc_data.pred_target = ((cur.check_target) || (cur.uop_type == UOP_ERET)) ?
+                                 {16'b0, cur.pred_target} : 64'b0;
+    rob_alloc_data.pred_ghr    = ((cur.check_target) || (cur.uop_type == UOP_ERET)) ?
+                                 cur.pred_ghr : '0;
     rob_alloc_data.inst_type   =
         (cur.uop_type == UOP_RD)   ? ROB_TYPE_LOAD  :
         (cur.uop_type == UOP_WR)   ? ROB_TYPE_STORE :

@@ -191,6 +191,8 @@ typedef struct packed {
     logic [3:0]                 exc_code;
     logic [63:0]                PC;
     logic                       pred_taken; // set by dispatch
+    logic [63:0]                pred_target;
+    logic [7:0]                 pred_ghr;
     logic                       br_taken;
     logic [63:0]                br_target;
     logic [63:0]                store_addr;
@@ -222,6 +224,8 @@ typedef enum logic [3:0] {
     UOP_ERET       = 4'd15
 } uop_type_e;
 
+localparam int BP_GHR_WIDTH = 8;
+
 typedef struct packed {
     uop_type_e uop_type;
     logic [5:0] a, b, c;
@@ -232,6 +236,9 @@ typedef struct packed {
     logic fp_bit;
     logic set_flags;
     logic check_target;
+    logic pred_taken;
+    logic [47:0] pred_target;
+    logic [BP_GHR_WIDTH-1:0] pred_ghr;
     logic [5:0] shift_amt;   // RR-format shifted-register: amount to pre-shift Vk
     logic [1:0] shift_type;  // 00=LSL, 01=LSR, 10=ASR
     logic sysreg_op;

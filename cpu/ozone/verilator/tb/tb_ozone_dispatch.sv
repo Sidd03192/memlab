@@ -112,7 +112,7 @@ ozone_rob rob (
     .commit_fp_en,    .commit_fp_addr,    .commit_fp_value,  .commit_fp_rob_idx,
     .commit_nzcv_en,  .commit_nzcv_value, .commit_nzcv_rob_idx,
     .lsq_store_commit(), .lsq_store_addr(), .lsq_store_data(),
-    .bp_update_valid(), .bp_update_pc(), .bp_update_taken(), .bp_update_target(),
+    .bp_update_valid(), .bp_update_pc(), .bp_update_taken(), .bp_update_target(), .bp_update_ghr(),
     .flush(), .flush_target_pc(),
     .exception_valid(), .exception_pc(), .exception_code()
 );

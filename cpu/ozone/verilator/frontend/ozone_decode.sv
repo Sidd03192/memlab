@@ -10,6 +10,9 @@ module ozone_decode
     input logic flush,
     input logic [31:0] the_insn_bits,
     input logic [47:0] the_insn_pc,
+    input logic pred_taken_in,
+    input logic [47:0] pred_target_in,
+    input logic [BP_GHR_WIDTH-1:0] pred_ghr_in,
     input logic insn_ready,
 
 
@@ -22,6 +25,9 @@ module ozone_decode
 
     logic [31:0] insn_bits;
     logic [47:0] insn_pc;
+    logic        insn_pred_taken;
+    logic [47:0] insn_pred_target;
+    logic [BP_GHR_WIDTH-1:0] insn_pred_ghr;
     logic [2:0] decoder_state;
 
     typedef struct packed {
@@ -219,6 +225,9 @@ module ozone_decode
                     if (decoder_ready && insn_ready) begin
                         insn_bits <= the_insn_bits;
                         insn_pc <= the_insn_pc;
+                        insn_pred_taken <= pred_taken_in;
+                        insn_pred_target <= pred_target_in;
+                        insn_pred_ghr <= pred_ghr_in;
                         decoder_state <= 1;
                     end
                 end
@@ -376,12 +385,18 @@ module ozone_decode
                     uop_out[0].b  <= 6'd32;
                     uop_out[0].c  <= 6'd32;
                     uop_out[0].pc <= insn_pc;
+                    uop_out[0].pred_taken  <= insn_pred_taken;
+                    uop_out[0].pred_target <= insn_pred_target;
+                    uop_out[0].pred_ghr    <= insn_pred_ghr;
 
                     uop_out[1]    <= '0;
                     uop_out[1].a  <= 6'd32;
                     uop_out[1].b  <= 6'd32;
                     uop_out[1].c  <= 6'd32;
                     uop_out[1].pc <= insn_pc;
+                    uop_out[1].pred_taken  <= insn_pred_taken;
+                    uop_out[1].pred_target <= insn_pred_target;
+                    uop_out[1].pred_ghr    <= insn_pred_ghr;
 
                     case (comb_ins_format)
                         4'd0: begin  // M: load/store — single uop

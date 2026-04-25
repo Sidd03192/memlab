@@ -33,8 +33,12 @@ module tb_ozone_decode_cases
     ozone_decode dut (
         .clk          (clk),
         .rst          (rst),
+        .flush        (1'b0),
         .the_insn_bits(the_insn_bits),
         .the_insn_pc  (the_insn_pc),
+        .pred_taken_in(1'b0),
+        .pred_target_in(48'b0),
+        .pred_ghr_in  ('0),
         .insn_ready   (insn_ready),
         .ready_for_uop(ready_for_uop),
         .decoder_ready(decoder_ready),
