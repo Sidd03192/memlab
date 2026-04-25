@@ -96,9 +96,9 @@ module fpnew_divsqrt_multi #(
 
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][1:0][WIDTH-1:0]       inp_pipe_operands_q;
-  fpnew_pkg::roundmode_e [0:NUM_INP_REGS]                       inp_pipe_rnd_mode_q;
-  fpnew_pkg::operation_e [0:NUM_INP_REGS]                       inp_pipe_op_q;
-  fpnew_pkg::fp_format_e [0:NUM_INP_REGS]                       inp_pipe_dst_fmt_q;
+  logic [0:NUM_INP_REGS][2:0]                                   inp_pipe_rnd_mode_q;
+  logic [0:NUM_INP_REGS][fpnew_pkg::OP_BITS-1:0]                inp_pipe_op_q;
+  logic [0:NUM_INP_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0]         inp_pipe_dst_fmt_q;
   logic [0:NUM_INP_REGS][TagWidth-1:0]                       inp_pipe_tag_q;
   logic                  [0:NUM_INP_REGS]                       inp_pipe_mask_q;
   logic [0:NUM_INP_REGS][AuxWidth-1:0]                       inp_pipe_aux_q;

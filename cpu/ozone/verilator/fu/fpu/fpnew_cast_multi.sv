@@ -77,10 +77,8 @@ module fpnew_cast_multi #(
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
   localparam int unsigned MAX_INT_WIDTH   = fpnew_pkg::max_int_width(IntFmtConfig);
 
-  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT = fpnew_pkg::super_format(FpFmtConfig);
-
-  localparam int unsigned SUPER_EXP_BITS = SUPER_FORMAT.exp_bits;
-  localparam int unsigned SUPER_MAN_BITS = SUPER_FORMAT.man_bits;
+  localparam int unsigned SUPER_EXP_BITS = fpnew_pkg::max_exp_bits(FpFmtConfig);
+  localparam int unsigned SUPER_MAN_BITS = fpnew_pkg::max_man_bits(FpFmtConfig);
   localparam int unsigned SUPER_BIAS     = 2**(SUPER_EXP_BITS - 1) - 1;
 
   // The internal mantissa includes normal bit or an entire integer
@@ -122,12 +120,12 @@ module fpnew_cast_multi #(
   // Input pipeline signals, index i holds signal after i register stages
   logic                   [0:NUM_INP_REGS][WIDTH-1:0]       inp_pipe_operands_q;
   logic                   [0:NUM_INP_REGS][NUM_FORMATS-1:0] inp_pipe_is_boxed_q;
-  fpnew_pkg::roundmode_e  [0:NUM_INP_REGS]                  inp_pipe_rnd_mode_q;
-  fpnew_pkg::operation_e  [0:NUM_INP_REGS]                  inp_pipe_op_q;
+  logic                   [0:NUM_INP_REGS][2:0]             inp_pipe_rnd_mode_q;
+  logic                   [0:NUM_INP_REGS][fpnew_pkg::OP_BITS-1:0] inp_pipe_op_q;
   logic                   [0:NUM_INP_REGS]                  inp_pipe_op_mod_q;
-  fpnew_pkg::fp_format_e  [0:NUM_INP_REGS]                  inp_pipe_src_fmt_q;
-  fpnew_pkg::fp_format_e  [0:NUM_INP_REGS]                  inp_pipe_dst_fmt_q;
-  fpnew_pkg::int_format_e [0:NUM_INP_REGS]                  inp_pipe_int_fmt_q;
+  logic                   [0:NUM_INP_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] inp_pipe_src_fmt_q;
+  logic                   [0:NUM_INP_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] inp_pipe_dst_fmt_q;
+  logic                   [0:NUM_INP_REGS][fpnew_pkg::INT_FORMAT_BITS-1:0] inp_pipe_int_fmt_q;
   logic [0:NUM_INP_REGS][TagWidth-1:0]                  inp_pipe_tag_q;
   logic                   [0:NUM_INP_REGS]                  inp_pipe_mask_q;
   logic [0:NUM_INP_REGS][AuxWidth-1:0]                  inp_pipe_aux_q;
@@ -349,10 +347,10 @@ module fpnew_cast_multi #(
   fpnew_pkg::fp_info_t    [0:NUM_MID_REGS]                    mid_pipe_info_q;
   logic                   [0:NUM_MID_REGS]                    mid_pipe_mant_zero_q;
   logic                   [0:NUM_MID_REGS]                    mid_pipe_op_mod_q;
-  fpnew_pkg::roundmode_e  [0:NUM_MID_REGS]                    mid_pipe_rnd_mode_q;
-  fpnew_pkg::fp_format_e  [0:NUM_MID_REGS]                    mid_pipe_src_fmt_q;
-  fpnew_pkg::fp_format_e  [0:NUM_MID_REGS]                    mid_pipe_dst_fmt_q;
-  fpnew_pkg::int_format_e [0:NUM_MID_REGS]                    mid_pipe_int_fmt_q;
+  logic                   [0:NUM_MID_REGS][2:0]               mid_pipe_rnd_mode_q;
+  logic                   [0:NUM_MID_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] mid_pipe_src_fmt_q;
+  logic                   [0:NUM_MID_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] mid_pipe_dst_fmt_q;
+  logic                   [0:NUM_MID_REGS][fpnew_pkg::INT_FORMAT_BITS-1:0] mid_pipe_int_fmt_q;
   logic [0:NUM_MID_REGS][TagWidth-1:0]                    mid_pipe_tag_q;
   logic                   [0:NUM_MID_REGS]                    mid_pipe_mask_q;
   logic [0:NUM_MID_REGS][AuxWidth-1:0]                    mid_pipe_aux_q;

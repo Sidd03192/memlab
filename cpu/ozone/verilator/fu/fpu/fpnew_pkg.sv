@@ -36,15 +36,12 @@ package fpnew_pkg;
   localparam int unsigned NUM_FP_FORMATS = 5; // change me to add formats
   localparam int unsigned FP_FORMAT_BITS = $clog2(NUM_FP_FORMATS);
 
-  // FP formats
-  typedef enum logic [FP_FORMAT_BITS-1:0] {
-    FP32    = 'd0,
-    FP64    = 'd1,
-    FP16    = 'd2,
-    FP8     = 'd3,
-    FP16ALT = 'd4
-    // add new formats here
-  } fp_format_e;
+  typedef logic [FP_FORMAT_BITS-1:0] fp_format_e;
+  localparam fp_format_e FP32    = fp_format_e'('d0);
+  localparam fp_format_e FP64    = fp_format_e'('d1);
+  localparam fp_format_e FP16    = fp_format_e'('d2);
+  localparam fp_format_e FP8     = fp_format_e'('d3);
+  localparam fp_format_e FP16ALT = fp_format_e'('d4);
 
   // Encodings for supported FP formats
   localparam fp_encoding_t [0:NUM_FP_FORMATS-1] FP_ENCODINGS  = '{
@@ -75,14 +72,11 @@ package fpnew_pkg;
   localparam int unsigned NUM_INT_FORMATS = 4; // change me to add formats
   localparam int unsigned INT_FORMAT_BITS = $clog2(NUM_INT_FORMATS);
 
-  // Int formats
-  typedef enum logic [INT_FORMAT_BITS-1:0] {
-    INT8,
-    INT16,
-    INT32,
-    INT64
-    // add new formats here
-  } int_format_e;
+  typedef logic [INT_FORMAT_BITS-1:0] int_format_e;
+  localparam int_format_e INT8  = int_format_e'('d0);
+  localparam int_format_e INT16 = int_format_e'('d1);
+  localparam int_format_e INT32 = int_format_e'('d2);
+  localparam int_format_e INT64 = int_format_e'('d3);
 
   // Returns the width of an INT format by index
   function automatic int unsigned int_width(int_format_e ifmt);
@@ -106,43 +100,52 @@ package fpnew_pkg;
   // --------------
   localparam int unsigned NUM_OPGROUPS = 4;
 
-  // Each FP operation belongs to an operation group
-  typedef enum logic [1:0] {
-    ADDMUL, DIVSQRT, NONCOMP, CONV
-  } opgroup_e;
+  typedef logic [1:0] opgroup_e;
+  localparam opgroup_e ADDMUL  = opgroup_e'('d0);
+  localparam opgroup_e DIVSQRT = opgroup_e'('d1);
+  localparam opgroup_e NONCOMP = opgroup_e'('d2);
+  localparam opgroup_e CONV    = opgroup_e'('d3);
 
   localparam int unsigned OP_BITS = 4;
 
-  typedef enum logic [OP_BITS-1:0] {
-    FMADD, FNMSUB, ADD, MUL,     // ADDMUL operation group
-    DIV, SQRT,                   // DIVSQRT operation group
-    SGNJ, MINMAX, CMP, CLASSIFY, // NONCOMP operation group
-    F2F, F2I, I2F, CPKAB, CPKCD, // CONV operation group
-    ADDS                         // ADDMUL operation group (ADDS is added here to preserve bit encoding of operations)
-  } operation_e;
+  typedef logic [OP_BITS-1:0] operation_e;
+  localparam operation_e FMADD    = operation_e'('d0);
+  localparam operation_e FNMSUB   = operation_e'('d1);
+  localparam operation_e ADD      = operation_e'('d2);
+  localparam operation_e MUL      = operation_e'('d3);
+  localparam operation_e DIV      = operation_e'('d4);
+  localparam operation_e SQRT     = operation_e'('d5);
+  localparam operation_e SGNJ     = operation_e'('d6);
+  localparam operation_e MINMAX   = operation_e'('d7);
+  localparam operation_e CMP      = operation_e'('d8);
+  localparam operation_e CLASSIFY = operation_e'('d9);
+  localparam operation_e F2F      = operation_e'('d10);
+  localparam operation_e F2I      = operation_e'('d11);
+  localparam operation_e I2F      = operation_e'('d12);
+  localparam operation_e CPKAB    = operation_e'('d13);
+  localparam operation_e CPKCD    = operation_e'('d14);
+  localparam operation_e ADDS     = operation_e'('d15);
 
   // -------------
   // DIVSQRT UNIT
   // -------------
-  typedef enum logic[1:0] {
-    PULP,    // "PULP" instantiates the PULP DivSqrt unit supports FP64, FP32, FP16, FP16ALT, FP8 and SIMD operations
-    TH32,    // "TH32" instantiates the E906 DivSqrt unit supports only FP32 (no SIMD support)
-    THMULTI  // "THMULTI" instantiates the C910 DivSqrt unit supports FP64, FP32, FP16, FP16ALT and SIMD operations
-  } divsqrt_unit_t;
+  typedef logic [1:0] divsqrt_unit_t;
+  localparam divsqrt_unit_t PULP    = divsqrt_unit_t'('d0);
+  localparam divsqrt_unit_t TH32    = divsqrt_unit_t'('d1);
+  localparam divsqrt_unit_t THMULTI = divsqrt_unit_t'('d2);
 
   // -------------------
   // RISC-V FP-SPECIFIC
   // -------------------
   // Rounding modes
-  typedef enum logic [2:0] {
-    RNE = 3'b000,
-    RTZ = 3'b001,
-    RDN = 3'b010,
-    RUP = 3'b011,
-    RMM = 3'b100,
-    ROD = 3'b101,  // This mode is not defined in RISC-V FP-SPEC
-    DYN = 3'b111
-  } roundmode_e;
+  typedef logic [2:0] roundmode_e;
+  localparam roundmode_e RNE = 3'b000;
+  localparam roundmode_e RTZ = 3'b001;
+  localparam roundmode_e RDN = 3'b010;
+  localparam roundmode_e RUP = 3'b011;
+  localparam roundmode_e RMM = 3'b100;
+  localparam roundmode_e ROD = 3'b101;
+  localparam roundmode_e DYN = 3'b111;
 
   // Status flags
   typedef struct packed {
@@ -166,36 +169,33 @@ package fpnew_pkg;
   } fp_info_t;
 
   // Classification mask
-  typedef enum logic [9:0] {
-    NEGINF     = 10'b00_0000_0001,
-    NEGNORM    = 10'b00_0000_0010,
-    NEGSUBNORM = 10'b00_0000_0100,
-    NEGZERO    = 10'b00_0000_1000,
-    POSZERO    = 10'b00_0001_0000,
-    POSSUBNORM = 10'b00_0010_0000,
-    POSNORM    = 10'b00_0100_0000,
-    POSINF     = 10'b00_1000_0000,
-    SNAN       = 10'b01_0000_0000,
-    QNAN       = 10'b10_0000_0000
-  } classmask_e;
+  typedef logic [9:0] classmask_e;
+  localparam classmask_e NEGINF     = 10'b00_0000_0001;
+  localparam classmask_e NEGNORM    = 10'b00_0000_0010;
+  localparam classmask_e NEGSUBNORM = 10'b00_0000_0100;
+  localparam classmask_e NEGZERO    = 10'b00_0000_1000;
+  localparam classmask_e POSZERO    = 10'b00_0001_0000;
+  localparam classmask_e POSSUBNORM = 10'b00_0010_0000;
+  localparam classmask_e POSNORM    = 10'b00_0100_0000;
+  localparam classmask_e POSINF     = 10'b00_1000_0000;
+  localparam classmask_e SNAN       = 10'b01_0000_0000;
+  localparam classmask_e QNAN       = 10'b10_0000_0000;
 
   // ------------------
   // FPU configuration
   // ------------------
   // Pipelining registers can be inserted (at elaboration time) into operational units
-  typedef enum logic [1:0] {
-    BEFORE,     // registers are inserted at the inputs of the unit
-    AFTER,      // registers are inserted at the outputs of the unit
-    INSIDE,     // registers are inserted at predetermined (suboptimal) locations in the unit
-    DISTRIBUTED // registers are evenly distributed, INSIDE >= AFTER >= BEFORE
-  } pipe_config_t;
+  typedef logic [1:0] pipe_config_t;
+  localparam pipe_config_t BEFORE      = pipe_config_t'('d0);
+  localparam pipe_config_t AFTER       = pipe_config_t'('d1);
+  localparam pipe_config_t INSIDE      = pipe_config_t'('d2);
+  localparam pipe_config_t DISTRIBUTED = pipe_config_t'('d3);
 
   // Arithmetic units can be arranged in parallel (per format), merged (multi-format) or not at all.
-  typedef enum logic [1:0] {
-    DISABLED, // arithmetic units are not generated
-    PARALLEL, // arithmetic units are generated in prallel slices, one for each format
-    MERGED    // arithmetic units are contained within a merged unit holding multiple formats
-  } unit_type_t;
+  typedef logic [1:0] unit_type_t;
+  localparam unit_type_t DISABLED = unit_type_t'('d0);
+  localparam unit_type_t PARALLEL = unit_type_t'('d1);
+  localparam unit_type_t MERGED   = unit_type_t'('d2);
 
   // Array of unit types indexed by format. Keep the 2-bit enum encoding, but
   // use a logic element type so synthesis parsers treat this as packable.
