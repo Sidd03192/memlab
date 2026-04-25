@@ -48,10 +48,10 @@ This script automates the verification process by checking that the RTL implemen
 3. **Comparison:** Extracts the final architectural state from the RTL simulation's shared memory, and rigorously compares the two states. If there are any mismatches in general-purpose registers, floating-point registers, or tracked memory addresses, it prints a diff and marks the test as failed.
 
 ## Extra Credit Features
-- [x] Distinguish between different types of exceptions.
-- [x] Make it so writing a terminate value to the special-purpose register `ACTLR_EL1` causes the processor to enter a low power state. This will be tested by either placing a finger on the FPGA to see if it's hot, or seeing whether a core is being hogged by Verilator.
+- [x] Distinguish between different types of exceptions. **Covered by:** `el1_4_svc_bad_syscall` and `el1_4_svc_terminate` (different `SVC` numbers route to different handlers/exception paths).
+- [x] Make it so writing a terminate value to the special-purpose register `ACTLR_EL1` causes the processor to enter a low power state. This will be tested by either placing a finger on the FPGA to see if it's hot, or seeing whether a core is being hogged by Verilator. **Covered by:** `el1_4_svc_terminate` (handler writes terminate value to `ACTLR_EL1`).
 - [ ] Make your front end 2-way superscalar, and beef up your back end so that it has the capacity to handle this without stalling uselessly.
-- [x] Add the `SVC` instruction, and use a particular value to do clean termination, rather than using just a segfault. You should be able to differentiate between a segfault termination and an `SVC` termination. Effectively, this is implementing a sycall. Syscalls with different numbers should fail with a completely different error (in a different exception handler).
+- [x] Add the `SVC` instruction, and use a particular value to do clean termination, rather than using just a segfault. You should be able to differentiate between a segfault termination and an `SVC` termination. Effectively, this is implementing a syscall. Syscalls with different numbers should fail with a completely different error (in a different exception handler). **Covered by:** `el1_4_svc_bad_syscall` and `el1_4_svc_terminate`.
 
 
 ### New `5_*` Tests Added
