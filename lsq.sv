@@ -79,6 +79,8 @@ module lsq #(
     input  logic [ROB_IDX_WIDTH-1:0]  mem_resp_lq_id,      // which LQ entry is returning
     input  logic [DATA_WIDTH-1:0]     mem_resp_data,        // returned load data
     input  logic                      mem_resp_valid,       // data is valid this cycle
+    input  logic                      mem_resp_exc,
+    input  logic [7:0]                mem_resp_exc_code,
 
     // Handshake for L1 and TLB accepting the issued request
     input  logic                      l1_ready,
@@ -503,8 +505,8 @@ module lsq #(
                             cdb_out.br_valid    <= 1'b0;
                             cdb_out.br_taken    <= 1'b0;
                             cdb_out.br_target   <= '0;
-                            cdb_out.exc         <= 1'b0;
-                            cdb_out.exc_code    <= '0;
+                            cdb_out.exc         <= mem_resp_exc;
+                            cdb_out.exc_code    <= mem_resp_exc_code;
 
                             if (i[LQ_PTR_WIDTH-1:0] == lq_head)
                                 lq_head <= lq_head + 1'b1;

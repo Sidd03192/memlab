@@ -296,23 +296,22 @@ module ozone_rs_adder
         for (int i = 0; i < DEPTH; i++) begin
           if (entries[i].valid) begin
             if (entries[i].Qj != '0 &&
-                entries[i].Qj == cdb_in.rob_tag) begin
-                  // if this is a B.cond, we need to update the condition flags instead of the value
+                entries[i].Qj == cdb_in.rob_tag &&
+                cdb_in.cdb_value_en) begin
+                entries[i].Vj <= cdb_in.value;
+                entries[i].Qj <= '0;
+            end
+            if (entries[i].Qk != '0 &&
+                entries[i].Qk == cdb_in.rob_tag) begin
               if (entries[i].op == OP_BCOND) begin
                 if (cdb_in.update_nzcv) begin
                   entries[i].nzcv <= cdb_in.nzcv;
-                  entries[i].Qj   <= '0;
+                  entries[i].Qk   <= '0;
                 end
               end else if (cdb_in.cdb_value_en) begin
-                entries[i].Vj <= cdb_in.value;
-                entries[i].Qj <= '0;
+                entries[i].Vk <= cdb_in.value;
+                entries[i].Qk <= '0;
               end
-            end
-            if (entries[i].Qk != '0 &&
-                entries[i].Qk == cdb_in.rob_tag &&
-                cdb_in.cdb_value_en) begin
-              entries[i].Vk <= cdb_in.value;
-              entries[i].Qk <= '0;
             end
           end
         end
@@ -354,6 +353,7 @@ module ozone_rs_adder
               entries[i].Qj <= '0;
             end
             if (entries[i].valid &&
+                entries[i].op != OP_BCOND &&
                 entries[i].Qk == issue_entry.rob_tag) begin
               entries[i].Vk <= add_result;
               entries[i].Qk <= '0;
@@ -367,9 +367,9 @@ module ozone_rs_adder
           for (int i = 0; i < DEPTH; i++) begin
             if (entries[i].valid       &&
                 entries[i].op == OP_BCOND &&
-                entries[i].Qj == issue_entry.rob_tag) begin
+                entries[i].Qk == issue_entry.rob_tag) begin
               entries[i].nzcv <= add_nzcv;
-              entries[i].Qj   <= '0;
+              entries[i].Qk   <= '0;
             end
           end
         end

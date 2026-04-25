@@ -170,9 +170,14 @@ module Top
     cdb_broadcast_t adder_req, logic_req, fpu_req, agu_req, lsq_req, cdb_broadcast;
     logic           lsq_granted;
     logic           core_flush;
+    logic           ret_zero_redirect;
 
     assign core_flush = pipe_flush || sim_finish_pending;
     assign halt_fetch = core_flush;
+    assign ret_zero_redirect = commit_valid &&
+                               commit_data.inst_type == ROB_TYPE_BRANCH &&
+                               commit_data.br_taken &&
+                               commit_data.br_target == 64'b0;
 
     ozone_itlb ozone_itlb (
         .clk_i         (clk),
@@ -698,10 +703,7 @@ module Top
                 skip_fetch_progress = 1'b1;
             end
 
-            if (commit_valid &&
-                commit_data.inst_type == ROB_TYPE_BRANCH &&
-                commit_data.br_taken &&
-                commit_data.br_target == 64'b0) begin
+            if (ret_zero_redirect) begin
                 if (cur_el == 2'd0) begin
                     $display("[TOP] EL0 RET-to-zero exception -> handler 0x%016h", vbar_el1 + 64'h400);
                     elr_el1         <= commit_data.PC;
@@ -723,7 +725,24 @@ module Top
                 end
             end
 
-            if (core_flush) begin
+            if (exception_valid) begin
+                $display("[TOP] exception code=%0d pc=0x%016h -> handler 0x%016h",
+                         exception_code, exception_pc, vbar_el1 + 64'h400);
+                elr_el1         <= exception_pc;
+                spsr_el1        <= {62'b0, cur_el};
+                cur_el          <= 2'd1;
+                pc              <= vbar_el1[47:0] + 48'h400;
+                state           <= 0;
+                state7_sent     <= 1'b0;
+                fetch_zero_pending <= 1'b0;
+                fetch_zero_wait    <= '0;
+                mem_en          <= 1'b0;
+                itlb_lookup_req <= 1'b0;
+                itlb_fill_req   <= 1'b0;
+                skip_fetch_progress = 1'b1;
+            end
+
+            if (core_flush && !exception_valid && !ret_zero_redirect) begin
                 $display("[TOP] flush redirect -> 0x%016h (pc=0x%012h state=%0d core_flush=%0b pipe_flush=%0b sim_finish=%0b commit_valid=%0b commit_pc=0x%012h commit_type=%0d br_taken=%0b br_target=0x%016h)",
                          flush_target_pc,
                          pc,

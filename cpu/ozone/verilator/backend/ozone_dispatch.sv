@@ -156,8 +156,16 @@ always_comb begin
         Vj = {16'b0, cur.pc};
         Qj = 6'b0;
     end else if (cur.b == 6'd31) begin
-        Vj = current_sp_value;
-        Qj = 6'b0;
+        if (!src1_st.busy) begin
+            Vj = current_sp_value;
+            Qj = 6'b0;
+        end else if (rob_src1_ready) begin
+            Vj = rob_src1_val;
+            Qj = 6'b0;
+        end else begin
+            Vj = 64'b0;
+            Qj = src1_st.rob_idx;
+        end
     end else if (cur.b == 6'd32) begin
         // XZR or no source — always zero, no dependency
         Vj = 64'b0;
@@ -192,8 +200,16 @@ always_comb begin
         Vk = cur.imm_bits;
         Qk = 6'b0;
     end else if (cur.c == 6'd31) begin
-        Vk = current_sp_value;
-        Qk = 6'b0;
+        if (!src2_st.busy) begin
+            Vk = current_sp_value;
+            Qk = 6'b0;
+        end else if (rob_src2_ready) begin
+            Vk = rob_src2_val;
+            Qk = 6'b0;
+        end else begin
+            Vk = 64'b0;
+            Qk = src2_st.rob_idx;
+        end
     end else if (cur.c == 6'd32) begin
         Vk = 64'b0;
         Qk = 6'b0;
@@ -219,8 +235,16 @@ logic [5:0]  Qdata;
 always_comb begin
     if (cur.uop_type == UOP_WR) begin
         if (cur.a == 6'd31) begin
-            Vdata = current_sp_value;
-            Qdata = 6'b0;
+            if (!src2_st.busy) begin
+                Vdata = current_sp_value;
+                Qdata = 6'b0;
+            end else if (rob_src2_ready) begin
+                Vdata = rob_src2_val;
+                Qdata = 6'b0;
+            end else begin
+                Vdata = 64'b0;
+                Qdata = src2_st.rob_idx;
+            end
         end else if (cur.a == 6'd32) begin
             Vdata = 64'b0;
             Qdata = 6'b0;
@@ -349,8 +373,9 @@ always_comb begin
     // BLR: Vj=reg_n (branch target), Vk carries PC+4 (return address).
     // c=XZR so Vk/Qk were both 0; safe to override.
     adder_alloc_entry.Vk        = (adder_op == OP_BLR) ? ({16'b0, cur.pc} + 64'd4) : Vk;
-    adder_alloc_entry.Qj        = Qj;
-    adder_alloc_entry.Qk        = (adder_op == OP_BLR) ? 6'b0 : Qk;
+    adder_alloc_entry.Qj        = (adder_op == OP_BCOND) ? 6'b0 : Qj;
+    adder_alloc_entry.Qk        = (adder_op == OP_BCOND) ? Qj :
+                                  (adder_op == OP_BLR)   ? 6'b0 : Qk;
     adder_alloc_entry.op        = adder_op;
     adder_alloc_entry.has_rd    = (cur.a != 6'd32);
     // B.cond: pass the condition code via branch_cond.
@@ -446,9 +471,11 @@ end
 
 // ─── regstate writes ─────────────────────────────────────────────────────
 always_comb begin
-    // GPR: mark dest busy (skip XZR=32, SP=31, and stores which write no reg)
+    // GPR: mark dest busy (skip XZR=32 and stores which write no reg). SP
+    // (architectural register 31 in the encodings that use it) is tracked so
+    // stack updates cannot race following loads/stores.
     rst_wr_en    = do_dispatch && !cur.fp_bit &&
-                   (cur.a != 6'd32) && (cur.a != 6'd31) &&
+                   (cur.a != 6'd32) &&
                    (cur.uop_type != UOP_WR);
     rst_wr_addr  = cur.a[4:0];
     rst_rob_idx  = rob_alloc_idx;

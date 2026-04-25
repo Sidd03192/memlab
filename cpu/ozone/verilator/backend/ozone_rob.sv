@@ -129,8 +129,7 @@ module ozone_rob
         commit_data         = head_entry;
 
         commit_reg_en       = head_can_commit &&
-                              (head_entry.dest_type == DEST_GPR) &&
-                              (head_entry.dest_reg != 5'd31);
+                              (head_entry.dest_type == DEST_GPR);
         commit_reg_addr     = head_entry.dest_reg;
         commit_reg_value    = head_entry.value;
         commit_reg_rob_idx  = head;
@@ -164,8 +163,15 @@ module ozone_rob
         exception_pc        = '0;
         exception_code      = '0;
 
-        if (head_can_commit && head_entry.inst_type == ROB_TYPE_BRANCH) begin
-            if (head_entry.br_taken && head_entry.br_target != 64'b0) begin
+        if (head_can_commit && head_entry.exc) begin
+            flush           = 1'b1;
+            flush_target_pc = '0;
+            exception_valid = 1'b1;
+            exception_pc    = head_entry.PC;
+            exception_code  = head_entry.exc_code;
+            branch_flush_commit = 1'b1;
+        end else if (head_can_commit && head_entry.inst_type == ROB_TYPE_BRANCH) begin
+            if (head_entry.br_taken) begin
                 flush           = 1'b1;
                 flush_target_pc = head_entry.br_target;
                 branch_flush_commit = 1'b1;

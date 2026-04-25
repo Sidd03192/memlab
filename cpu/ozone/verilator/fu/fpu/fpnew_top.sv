@@ -80,9 +80,21 @@ module fpnew_top
   localparam type TagType = logic [ROB_IDX_WIDTH-1:0];
 
   logic [NUM_OPERANDS-1:0][WIDTH-1:0] fpu_operands;
-  assign fpu_operands[0] = WIDTH'(issue_entry.Vj);
-  assign fpu_operands[1] = WIDTH'(issue_entry.Vk);
-  assign fpu_operands[2] = '0; // third operand unused; wire Vk2 here when adding FMA support
+  always_comb begin
+    fpu_operands = '0;
+    unique case (issue_entry.op)
+      fpnew_pkg::ADD,
+      fpnew_pkg::ADDS: begin
+        // fpnew implements ADD/SUB on the FMA datapath as 1.0 * B +/- C.
+        fpu_operands[1] = WIDTH'(issue_entry.Vj);
+        fpu_operands[2] = WIDTH'(issue_entry.Vk);
+      end
+      default: begin
+        fpu_operands[0] = WIDTH'(issue_entry.Vj);
+        fpu_operands[1] = WIDTH'(issue_entry.Vk);
+      end
+    endcase
+  end
 
   logic [WIDTH-1:0]        fpu_result;
   fpnew_pkg::status_t      fpu_status;

@@ -247,6 +247,8 @@ module memory_subsystem #(
     wire suppress_el0_store = launch_issue_now && translate_en_i &&
                               issue_buf_is_write &&
                               (issue_buf_vaddr[VA_WIDTH-1:30] != '0);
+    wire page_fault_now = launch_issue_now && translate_en_i && !tlb_bypass_now &&
+                          tlb_valid && (tlb_result_paddr == '0);
 
     wire tlb_start        = is_tlb_fill_now ||
                             (launch_issue_now && !tlb_bypass_now && !suppress_el0_store);
@@ -256,7 +258,7 @@ module memory_subsystem #(
                                                          : issue_buf_vaddr;
 
     // Gate L1 index start so it doesn't fire during a TLB fill collision
-    wire l1_start_from_lsq = launch_issue_now && !suppress_el0_store;
+    wire l1_start_from_lsq = launch_issue_now && !suppress_el0_store && !page_fault_now;
 
     // =========================================================================
     // L1 → LSQ LOAD RETURN PATH
@@ -265,6 +267,17 @@ module memory_subsystem #(
     logic                      l1_lsq_resp_valid;
     logic [ROB_IDX_WIDTH-1:0]  l1_lsq_resp_lq_id;
     logic [DATA_WIDTH-1:0]     l1_lsq_resp_data;
+    logic                      lsq_resp_valid;
+    logic [ROB_IDX_WIDTH-1:0]  lsq_resp_lq_id;
+    logic [DATA_WIDTH-1:0]     lsq_resp_data;
+    logic                      lsq_resp_exc;
+    logic [7:0]                lsq_resp_exc_code;
+
+    assign lsq_resp_valid    = page_fault_now ? 1'b1 : l1_lsq_resp_valid;
+    assign lsq_resp_lq_id    = page_fault_now ? issue_buf_lq_id : l1_lsq_resp_lq_id;
+    assign lsq_resp_data     = page_fault_now ? '0 : l1_lsq_resp_data;
+    assign lsq_resp_exc      = page_fault_now;
+    assign lsq_resp_exc_code = page_fault_now ? 8'd1 : 8'd0;
 
     // =========================================================================
     // L1 ↔ L2 SIGNALS
@@ -318,9 +331,11 @@ module memory_subsystem #(
         .valid_out         (lsq_valid_out),
 
         // From memory system — load data return
-        .mem_resp_lq_id    (l1_lsq_resp_lq_id),
-        .mem_resp_data     (l1_lsq_resp_data),
-        .mem_resp_valid    (l1_lsq_resp_valid),
+        .mem_resp_lq_id    (lsq_resp_lq_id),
+        .mem_resp_data     (lsq_resp_data),
+        .mem_resp_valid    (lsq_resp_valid),
+        .mem_resp_exc      (lsq_resp_exc),
+        .mem_resp_exc_code (lsq_resp_exc_code),
 
         // Handshake: LSQ dequeues only when issue buffer is empty
         .l1_ready          (lsq_issue_slot_ready),
@@ -412,7 +427,8 @@ module memory_subsystem #(
     tlb #(
         .VA_WIDTH       (VA_WIDTH),
         .PA_WIDTH       (PA_WIDTH),
-        .ENABLE_PAGE_WALK(ENABLE_TLB_PAGE_WALK)
+        .ENABLE_PAGE_WALK(ENABLE_TLB_PAGE_WALK),
+        .PAGE_WALK_STRICT(1'b0)
     ) u_tlb (
         .clk         (clk),
         .rst_n       (rst_n),

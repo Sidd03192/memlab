@@ -54,7 +54,7 @@ module ozone_regstate
 );
 
   // actual regiters 
-  reg_entry_t gp_reg [0:30];
+  reg_entry_t gp_reg [0:31];
   reg_entry_t fp_reg [0:31];
   reg_entry_t nzcv_reg;
 
@@ -81,7 +81,7 @@ module ozone_regstate
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       // Reset architectural state.
-      for (int i = 0; i < 31; i++) begin
+      for (int i = 0; i < 32; i++) begin
         gp_reg[i].value   <= 64'b0;
         gp_reg[i].busy    <= 1'b0;
         gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
@@ -100,7 +100,7 @@ module ozone_regstate
       // value is correct even if a speculative dispatch overwrote rob_idx.
       // Only use the rob_idx guard for clearing the busy bit: if a newer
       // writer (different rob_idx) is still in flight, leave busy asserted.
-      if (commit_en && commit_addr != 5'd31) begin
+      if (commit_en) begin
         gp_reg[commit_addr].value <= commit_value;
         if (gp_reg[commit_addr].rob_idx == commit_rob_idx)
           gp_reg[commit_addr].busy <= 1'b0;
@@ -134,7 +134,7 @@ module ozone_regstate
       end else begin
         // Flush: kill speculative rename state; committed values already
         // written above in the commit block.
-        for (int i = 0; i < 31; i++) begin
+        for (int i = 0; i < 32; i++) begin
           gp_reg[i].busy    <= 1'b0;
           gp_reg[i].rob_idx <= {ROB_IDX_WIDTH{1'b0}};
         end
