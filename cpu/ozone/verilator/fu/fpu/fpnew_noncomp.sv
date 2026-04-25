@@ -19,11 +19,11 @@ module fpnew_noncomp #(
   parameter fpnew_pkg::fp_format_e   FpFormat    = fpnew_pkg::fp_format_e'(0),
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
-  parameter type                     TagType     = logic,
-  parameter type                     AuxType     = logic,
+  parameter int unsigned             TagWidth    = 1,
+  parameter int unsigned             AuxWidth    = 1,
   // Do not change
-  localparam int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat),
-  localparam int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
+  parameter int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat),
+  parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                  clk_i,
   input logic                  rst_ni,
@@ -33,9 +33,9 @@ module fpnew_noncomp #(
   input fpnew_pkg::roundmode_e     rnd_mode_i,
   input fpnew_pkg::operation_e     op_i,
   input logic                      op_mod_i,
-  input TagType                    tag_i,
+  input logic [TagWidth-1:0]                    tag_i,
   input logic                      mask_i,
-  input AuxType                    aux_i,
+  input logic [AuxWidth-1:0]                    aux_i,
   // Input Handshake
   input  logic                     in_valid_i,
   output logic                     in_ready_o,
@@ -46,9 +46,9 @@ module fpnew_noncomp #(
   output logic                     extension_bit_o,
   output fpnew_pkg::classmask_e    class_mask_o,
   output logic                     is_class_o,
-  output TagType                   tag_o,
+  output logic [TagWidth-1:0]                   tag_o,
   output logic                     mask_o,
-  output AuxType                   aux_o,
+  output logic [AuxWidth-1:0]                   aux_o,
   // Output handshake
   output logic                     out_valid_o,
   input  logic                     out_ready_i,
@@ -95,9 +95,9 @@ module fpnew_noncomp #(
   fpnew_pkg::roundmode_e [0:NUM_INP_REGS]                 inp_pipe_rnd_mode_q;
   fpnew_pkg::operation_e [0:NUM_INP_REGS]                 inp_pipe_op_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_op_mod_q;
-  TagType                [0:NUM_INP_REGS]                 inp_pipe_tag_q;
+  logic [0:NUM_INP_REGS][TagWidth-1:0]                 inp_pipe_tag_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_mask_q;
-  AuxType                [0:NUM_INP_REGS]                 inp_pipe_aux_q;
+  logic [0:NUM_INP_REGS][AuxWidth-1:0]                 inp_pipe_aux_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_valid_q;
   // Ready signal is combinatorial for all stages
   logic [0:NUM_INP_REGS] inp_pipe_ready;
@@ -132,9 +132,9 @@ module fpnew_noncomp #(
     `FFL(inp_pipe_rnd_mode_q[i+1], inp_pipe_rnd_mode_q[i], reg_ena, fpnew_pkg::RNE)
     `FFL(inp_pipe_op_q[i+1],       inp_pipe_op_q[i],       reg_ena, fpnew_pkg::FMADD)
     `FFL(inp_pipe_op_mod_q[i+1],   inp_pipe_op_mod_q[i],   reg_ena, '0)
-    `FFL(inp_pipe_tag_q[i+1],      inp_pipe_tag_q[i],      reg_ena, TagType'('0))
+    `FFL(inp_pipe_tag_q[i+1],      inp_pipe_tag_q[i],      reg_ena, '0)
     `FFL(inp_pipe_mask_q[i+1],     inp_pipe_mask_q[i],     reg_ena, '0)
-    `FFL(inp_pipe_aux_q[i+1],      inp_pipe_aux_q[i],      reg_ena, AuxType'('0))
+    `FFL(inp_pipe_aux_q[i+1],      inp_pipe_aux_q[i],      reg_ena, '0)
   end
 
   // ---------------------
@@ -365,9 +365,9 @@ module fpnew_noncomp #(
   logic                  [0:NUM_OUT_REGS] out_pipe_extension_bit_q;
   fpnew_pkg::classmask_e [0:NUM_OUT_REGS] out_pipe_class_mask_q;
   logic                  [0:NUM_OUT_REGS] out_pipe_is_class_q;
-  TagType                [0:NUM_OUT_REGS] out_pipe_tag_q;
+  logic [0:NUM_OUT_REGS][TagWidth-1:0] out_pipe_tag_q;
   logic                  [0:NUM_OUT_REGS] out_pipe_mask_q;
-  AuxType                [0:NUM_OUT_REGS] out_pipe_aux_q;
+  logic [0:NUM_OUT_REGS][AuxWidth-1:0] out_pipe_aux_q;
   logic                  [0:NUM_OUT_REGS] out_pipe_valid_q;
   // Ready signal is combinatorial for all stages
   logic [0:NUM_OUT_REGS] out_pipe_ready;
@@ -402,9 +402,9 @@ module fpnew_noncomp #(
     `FFL(out_pipe_extension_bit_q[i+1], out_pipe_extension_bit_q[i], reg_ena, '0)
     `FFL(out_pipe_class_mask_q[i+1],    out_pipe_class_mask_q[i],    reg_ena, fpnew_pkg::QNAN)
     `FFL(out_pipe_is_class_q[i+1],      out_pipe_is_class_q[i],      reg_ena, '0)
-    `FFL(out_pipe_tag_q[i+1],           out_pipe_tag_q[i],           reg_ena, TagType'('0))
+    `FFL(out_pipe_tag_q[i+1],           out_pipe_tag_q[i],           reg_ena, '0)
     `FFL(out_pipe_mask_q[i+1],          out_pipe_mask_q[i],          reg_ena, '0)
-    `FFL(out_pipe_aux_q[i+1],           out_pipe_aux_q[i],           reg_ena, AuxType'('0))
+    `FFL(out_pipe_aux_q[i+1],           out_pipe_aux_q[i],           reg_ena, '0)
   end
   // Output stage: Ready travels backwards from output side, driven by downstream circuitry
   assign out_pipe_ready[NUM_OUT_REGS] = out_ready_i;

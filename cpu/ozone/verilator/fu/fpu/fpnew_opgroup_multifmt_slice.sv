@@ -26,13 +26,12 @@ module fpnew_opgroup_multifmt_slice #(
   parameter int unsigned              NumPipeRegs   = 0,
   parameter fpnew_pkg::pipe_config_t  PipeConfig    = fpnew_pkg::BEFORE,
   parameter logic                     ExtRegEna     = 1'b0,
-  parameter type                      TagType       = logic,
+  parameter int unsigned             TagWidth    = 1,
   // Do not change
-  localparam int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
-  localparam int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
-  localparam int unsigned NUM_SIMD_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, EnableVectors),
-  localparam type         MaskType     = logic [NUM_SIMD_LANES-1:0],
-  localparam int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
+  parameter int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
+  parameter int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
+  parameter int unsigned NUM_SIMD_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, EnableVectors),
+  parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                                     clk_i,
   input logic                                     rst_ni,
@@ -46,8 +45,8 @@ module fpnew_opgroup_multifmt_slice #(
   input fpnew_pkg::fp_format_e                    dst_fmt_i,
   input fpnew_pkg::int_format_e                   int_fmt_i,
   input logic                                     vectorial_op_i,
-  input TagType                                   tag_i,
-  input MaskType                                  simd_mask_i,
+  input logic [TagWidth-1:0]                                   tag_i,
+  input logic [NUM_SIMD_LANES-1:0]               simd_mask_i,
   // Input Handshake
   input  logic                                    in_valid_i,
   output logic                                    in_ready_o,
@@ -56,7 +55,7 @@ module fpnew_opgroup_multifmt_slice #(
   output logic [Width-1:0]                        result_o,
   output fpnew_pkg::status_t                      status_o,
   output logic                                    extension_bit_o,
-  output TagType                                  tag_o,
+  output logic [TagWidth-1:0]                                  tag_o,
   // Output handshake
   output logic                                    out_valid_o,
   input  logic                                    out_ready_i,
@@ -106,7 +105,7 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
 
   fpnew_pkg::status_t [NUM_LANES-1:0]   lane_status;
   logic   [NUM_LANES-1:0]               lane_ext_bit; // only the first one is actually used
-  TagType [NUM_LANES-1:0]               lane_tags; // only the first one is actually used
+  logic [NUM_LANES-1:0][TagWidth-1:0]               lane_tags; // only the first one is actually used
   logic   [NUM_LANES-1:0]               lane_masks;
   logic   [NUM_LANES-1:0][AUX_BITS-1:0] lane_aux; // only the first one is actually used
   logic   [NUM_LANES-1:0]               lane_busy; // dito
@@ -232,8 +231,8 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
           .FpFmtConfig ( LANE_FORMATS         ),
           .NumPipeRegs ( NumPipeRegs          ),
           .PipeConfig  ( PipeConfig           ),
-          .TagType     ( TagType              ),
-          .AuxType     ( logic [AUX_BITS-1:0] )
+          .TagWidth       ( TagWidth             ),
+          .AuxWidth       ( AUX_BITS             )
         ) i_fpnew_fma_multi (
           .clk_i,
           .rst_ni,
@@ -270,8 +269,8 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
           fpnew_divsqrt_th_32 #(
             .NumPipeRegs ( NumPipeRegs          ),
             .PipeConfig  ( PipeConfig           ),
-            .TagType     ( TagType              ),
-            .AuxType     ( logic [AUX_BITS-1:0] )
+            .TagWidth       ( TagWidth             ),
+            .AuxWidth       ( AUX_BITS             )
           ) i_fpnew_divsqrt_multi_th (
             .clk_i,
             .rst_ni,
@@ -302,8 +301,8 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
             .FpFmtConfig ( LANE_FORMATS         ),
             .NumPipeRegs ( NumPipeRegs          ),
             .PipeConfig  ( PipeConfig           ),
-            .TagType     ( TagType              ),
-            .AuxType     ( logic [AUX_BITS-1:0] )
+            .TagWidth       ( TagWidth             ),
+            .AuxWidth       ( AUX_BITS             )
           ) i_fpnew_divsqrt_th_64_c910 (
            .clk_i,
             .rst_ni,
@@ -340,8 +339,8 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
             .FpFmtConfig ( LANE_FORMATS         ),
             .NumPipeRegs ( NumPipeRegs          ),
             .PipeConfig  ( PipeConfig           ),
-            .TagType     ( TagType              ),
-            .AuxType     ( logic [AUX_BITS-1:0] )
+            .TagWidth       ( TagWidth             ),
+            .AuxWidth       ( AUX_BITS             )
           ) i_fpnew_divsqrt_multi (
             .clk_i,
             .rst_ni,
@@ -383,8 +382,8 @@ FP8. Please use the PULP DivSqrt unit when in need of div/sqrt operations on FP8
           .IntFmtConfig ( CONV_INT_FORMATS     ),
           .NumPipeRegs  ( NumPipeRegs          ),
           .PipeConfig   ( PipeConfig           ),
-          .TagType      ( TagType              ),
-          .AuxType      ( logic [AUX_BITS-1:0] )
+          .TagWidth       ( TagWidth             ),
+          .AuxWidth       ( AUX_BITS             )
         ) i_fpnew_cast_multi (
           .clk_i,
           .rst_ni,

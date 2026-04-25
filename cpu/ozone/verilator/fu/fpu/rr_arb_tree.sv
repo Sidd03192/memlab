@@ -3,7 +3,7 @@
 // approximation of round-robin. Sufficient for OOO simulation correctness.
 module rr_arb_tree #(
   parameter int unsigned NumIn     = 2,
-  parameter type         DataType  = logic,
+  parameter int unsigned DataWidth = 1,
   parameter bit          ExtPrio   = 1'b0,
   parameter bit          AxiVldRdy = 1'b0,
   parameter bit          LockIn    = 1'b0
@@ -14,10 +14,10 @@ module rr_arb_tree #(
   input  logic [$clog2(NumIn)-1:0]    rr_i,
   input  logic [NumIn-1:0]            req_i,
   output logic [NumIn-1:0]            gnt_o,
-  input  DataType [NumIn-1:0]         data_i,
+  input  logic [NumIn-1:0][DataWidth-1:0] data_i,
   input  logic                        gnt_i,
   output logic                        req_o,
-  output DataType                     data_o,
+  output logic [DataWidth-1:0]        data_o,
   output logic [$clog2(NumIn)-1:0]    idx_o
 );
   always_comb begin

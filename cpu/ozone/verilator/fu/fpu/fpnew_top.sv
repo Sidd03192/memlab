@@ -10,9 +10,9 @@ module fpnew_top
   parameter int unsigned                    EnableSIMDMask = 0,
   parameter int unsigned                    DEPTH          = 4,
   // Do not change
-  localparam int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
-  localparam int unsigned WIDTH        = Features.Width,
-  localparam int unsigned NUM_OPERANDS = 3
+  parameter int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
+  parameter int unsigned WIDTH        = Features.Width,
+  parameter int unsigned NUM_OPERANDS = 3
 )(
   input  logic            clk,
   input  logic            rst_n,
@@ -75,9 +75,9 @@ module fpnew_top
 
   // ---------------------------------------------------
   // FPU core instantiation
-  // TagType is the ROB tag so it flows through the pipeline
+  // The ROB tag flows through the FPnew pipeline.
   // ---------------------------------------------------
-  localparam type TagType = logic [ROB_IDX_WIDTH-1:0];
+  localparam int unsigned TagWidth = ROB_IDX_WIDTH;
 
   logic [NUM_OPERANDS-1:0][WIDTH-1:0] fpu_operands;
   always_comb begin
@@ -98,7 +98,7 @@ module fpnew_top
 
   logic [WIDTH-1:0]        fpu_result;
   fpnew_pkg::status_t      fpu_status;
-  TagType                  fpu_tag_out;
+  logic [TagWidth-1:0]                  fpu_tag_out;
   logic                    fpu_out_valid;
   logic                    fpu_in_ready;
 
@@ -106,7 +106,7 @@ module fpnew_top
     .Features       ( Features       ),
     .Implementation ( Implementation ),
     .DivSqrtSel     ( DivSqrtSel     ),
-    .TagType        ( TagType        ),
+    .TagWidth       ( TagWidth       ),
     .TrueSIMDClass  ( TrueSIMDClass  ),
     .EnableSIMDMask ( EnableSIMDMask )
   ) i_fpu (
