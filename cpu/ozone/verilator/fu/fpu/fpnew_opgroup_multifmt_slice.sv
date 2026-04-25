@@ -96,8 +96,16 @@ module fpnew_opgroup_multifmt_slice #(
   genvar i;
 
 
-  localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
-  localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
+  // Quartus can reject package-function based parameter evaluation here as non-constant.
+  localparam int unsigned MAX_FP_WIDTH   = FpFmtConfig[fpnew_pkg::FP64]    ? 64 :
+                                            FpFmtConfig[fpnew_pkg::FP32]    ? 32 :
+                                            FpFmtConfig[fpnew_pkg::FP16]    ? 16 :
+                                            FpFmtConfig[fpnew_pkg::FP16ALT] ? 16 :
+                                            FpFmtConfig[fpnew_pkg::FP8]     ? 8  : 1;
+  localparam int unsigned MAX_INT_WIDTH  = IntFmtConfig[fpnew_pkg::INT64] ? 64 :
+                                            IntFmtConfig[fpnew_pkg::INT32] ? 32 :
+                                            IntFmtConfig[fpnew_pkg::INT16] ? 16 :
+                                            IntFmtConfig[fpnew_pkg::INT8]  ? 8  : 1;
   localparam int unsigned NUM_LANES = NUM_SIMD_LANES;
   localparam int unsigned NUM_DIVSQRT_LANES = fpnew_pkg::num_divsqrt_lanes(Width, FpFmtConfig, 1'b1, DivSqrtSel);
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
@@ -191,14 +199,22 @@ module fpnew_opgroup_multifmt_slice #(
         fpnew_pkg::get_lane_formats(Width, FpFmtConfig, LANE);
     localparam fpnew_pkg::ifmt_logic_t ACTIVE_INT_FORMATS =
         fpnew_pkg::get_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
-    localparam int unsigned MAX_WIDTH = fpnew_pkg::max_fp_width(ACTIVE_FORMATS);
+    localparam int unsigned MAX_WIDTH = ACTIVE_FORMATS[fpnew_pkg::FP64]    ? 64 :
+                      ACTIVE_FORMATS[fpnew_pkg::FP32]    ? 32 :
+                      ACTIVE_FORMATS[fpnew_pkg::FP16]    ? 16 :
+                      ACTIVE_FORMATS[fpnew_pkg::FP16ALT] ? 16 :
+                      ACTIVE_FORMATS[fpnew_pkg::FP8]     ? 8  : 1;
 
     // Cast-specific parameters
     localparam fpnew_pkg::fmt_logic_t CONV_FORMATS =
         fpnew_pkg::get_conv_lane_formats(Width, FpFmtConfig, LANE);
     localparam fpnew_pkg::ifmt_logic_t CONV_INT_FORMATS =
         fpnew_pkg::get_conv_lane_int_formats(Width, FpFmtConfig, IntFmtConfig, LANE);
-    localparam int unsigned CONV_WIDTH = fpnew_pkg::max_fp_width(CONV_FORMATS);
+    localparam int unsigned CONV_WIDTH = CONV_FORMATS[fpnew_pkg::FP64]    ? 64 :
+                       CONV_FORMATS[fpnew_pkg::FP32]    ? 32 :
+                       CONV_FORMATS[fpnew_pkg::FP16]    ? 16 :
+                       CONV_FORMATS[fpnew_pkg::FP16ALT] ? 16 :
+                       CONV_FORMATS[fpnew_pkg::FP8]     ? 8  : 1;
 
     // Lane parameters from Opgroup
     localparam fpnew_pkg::fmt_logic_t LANE_FORMATS = (OpGroup == fpnew_pkg::CONV)
