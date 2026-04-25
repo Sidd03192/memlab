@@ -8,6 +8,11 @@
 - Sean McCain (@shaewn)
 - Max Feldman (@MaxFeldman1)
 
+## FPGA Files
+
+- **Quartus project:** [cpu/quartus/](cpu/quartus/)
+- **Compiled FPGA bitstream:** [ooo.rbf](ooo.rbf) (root of repo)
+
 ## Build and Testing Instructions
 
 To run the standard tests:

@@ -1,6 +1,6 @@
 Info: Starting: Create block symbol file (.bsf)
-Info: qsys-generate C:\Users\bstro\Downloads\OZONE\Demonstrations\SoC_FPGA\DE10_NANO_SoC_GHRD\soc_system.qsys --block-symbol-file --output-directory=C:\Users\bstro\Downloads\OZONE\Demonstrations\SoC_FPGA\DE10_NANO_SoC_GHRD\soc_system --family="Cyclone V" --part=5CSEBA6U23I7
-Progress: Loading DE10_NANO_SoC_GHRD/soc_system.qsys
+Info: qsys-generate /home/rispop/cs350c/oop/cpu/quartus/soc_system.qsys --block-symbol-file --output-directory=/home/rispop/cs350c/oop/cpu/quartus/soc_system --family="Cyclone V" --part=5CSEBA6U23I7
+Progress: Loading quartus/soc_system.qsys
 Progress: Reading input file
 Progress: Adding clk_0 [clock_source 25.1]
 Progress: Parameterizing module clk_0
@@ -33,8 +33,8 @@ Info: qsys-generate succeeded.
 Info: Finished: Create block symbol file (.bsf)
 Info: 
 Info: Starting: Create HDL design files for synthesis
-Info: qsys-generate C:\Users\bstro\Downloads\OZONE\Demonstrations\SoC_FPGA\DE10_NANO_SoC_GHRD\soc_system.qsys --synthesis=VERILOG --output-directory=C:\Users\bstro\Downloads\OZONE\Demonstrations\SoC_FPGA\DE10_NANO_SoC_GHRD\soc_system\synthesis --family="Cyclone V" --part=5CSEBA6U23I7
-Progress: Loading DE10_NANO_SoC_GHRD/soc_system.qsys
+Info: qsys-generate /home/rispop/cs350c/oop/cpu/quartus/soc_system.qsys --synthesis=VERILOG --output-directory=/home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis --family="Cyclone V" --part=5CSEBA6U23I7
+Progress: Loading quartus/soc_system.qsys
 Progress: Reading input file
 Progress: Adding clk_0 [clock_source 25.1]
 Progress: Parameterizing module clk_0
@@ -110,14 +110,14 @@ Info: mm_bridge_0_s0_agent: "mm_interconnect_0" instantiated altera_merlin_slave
 Info: router: "mm_interconnect_0" instantiated altera_merlin_router "router"
 Info: router_002: "mm_interconnect_0" instantiated altera_merlin_router "router_002"
 Info: mm_bridge_0_s0_burst_adapter: "mm_interconnect_0" instantiated altera_merlin_burst_adapter "mm_bridge_0_s0_burst_adapter"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_address_alignment.sv
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_avalon_st_pipeline_stage.sv
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_avalon_st_pipeline_base.v
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_address_alignment.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_avalon_st_pipeline_stage.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_avalon_st_pipeline_base.v
 Info: cmd_demux: "mm_interconnect_0" instantiated altera_merlin_demultiplexer "cmd_demux"
 Info: cmd_mux: "mm_interconnect_0" instantiated altera_merlin_multiplexer "cmd_mux"
 Info: rsp_demux: "mm_interconnect_0" instantiated altera_merlin_demultiplexer "rsp_demux"
 Info: rsp_mux: "mm_interconnect_0" instantiated altera_merlin_multiplexer "rsp_mux"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
 Info: avalon_st_adapter: "mm_interconnect_0" instantiated altera_avalon_st_adapter "avalon_st_adapter"
 Info: mm_bridge_0_m0_translator: "mm_interconnect_1" instantiated altera_merlin_master_translator "mm_bridge_0_m0_translator"
 Info: mm_bridge_0_m0_agent: "mm_interconnect_1" instantiated altera_merlin_master_agent "mm_bridge_0_m0_agent"
@@ -125,35 +125,35 @@ Info: router: "mm_interconnect_1" instantiated altera_merlin_router "router"
 Info: router_002: "mm_interconnect_1" instantiated altera_merlin_router "router_002"
 Info: cmd_demux: "mm_interconnect_1" instantiated altera_merlin_demultiplexer "cmd_demux"
 Info: cmd_mux: "mm_interconnect_1" instantiated altera_merlin_multiplexer "cmd_mux"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
 Info: rsp_demux: "mm_interconnect_1" instantiated altera_merlin_demultiplexer "rsp_demux"
 Info: rsp_mux: "mm_interconnect_1" instantiated altera_merlin_multiplexer "rsp_mux"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
 Info: hps_0_f2h_axi_slave_agent: "mm_interconnect_2" instantiated altera_merlin_axi_slave_ni "hps_0_f2h_axi_slave_agent"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_burst_uncompressor.sv
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_avalon_sc_fifo.v
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_address_alignment.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_burst_uncompressor.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_avalon_sc_fifo.v
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_address_alignment.sv
 Info: router: "mm_interconnect_2" instantiated altera_merlin_router "router"
 Info: router_001: "mm_interconnect_2" instantiated altera_merlin_router "router_001"
 Info: hps_only_master_master_limiter: "mm_interconnect_2" instantiated altera_merlin_traffic_limiter "hps_only_master_master_limiter"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_avalon_sc_fifo.v
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_avalon_st_pipeline_base.v
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_avalon_sc_fifo.v
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_avalon_st_pipeline_base.v
 Info: cmd_demux: "mm_interconnect_2" instantiated altera_merlin_demultiplexer "cmd_demux"
 Info: cmd_mux: "mm_interconnect_2" instantiated altera_merlin_multiplexer "cmd_mux"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
 Info: rsp_demux: "mm_interconnect_2" instantiated altera_merlin_demultiplexer "rsp_demux"
 Info: rsp_mux: "mm_interconnect_2" instantiated altera_merlin_multiplexer "rsp_mux"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
 Info: hps_0_f2h_axi_slave_wr_cmd_width_adapter: "mm_interconnect_2" instantiated altera_merlin_width_adapter "hps_0_f2h_axi_slave_wr_cmd_width_adapter"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_address_alignment.sv
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_burst_uncompressor.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_address_alignment.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_burst_uncompressor.sv
 Info: router: "mm_interconnect_3" instantiated altera_merlin_router "router"
 Info: router_001: "mm_interconnect_3" instantiated altera_merlin_router "router_001"
 Info: cmd_demux: "mm_interconnect_3" instantiated altera_merlin_demultiplexer "cmd_demux"
 Info: cmd_mux: "mm_interconnect_3" instantiated altera_merlin_multiplexer "cmd_mux"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
 Info: rsp_mux: "mm_interconnect_3" instantiated altera_merlin_multiplexer "rsp_mux"
-Info: Reusing file C:/Users/bstro/Downloads/OZONE/Demonstrations/SoC_FPGA/DE10_NANO_SoC_GHRD/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
+Info: Reusing file /home/rispop/cs350c/oop/cpu/quartus/soc_system/synthesis/submodules/altera_merlin_arbitrator.sv
 Info: avalon_st_adapter: "mm_interconnect_3" instantiated altera_avalon_st_adapter "avalon_st_adapter"
 Info: border: "hps_io" instantiated altera_interface_generator "border"
 Info: error_adapter_0: "avalon_st_adapter" instantiated error_adapter "error_adapter_0"

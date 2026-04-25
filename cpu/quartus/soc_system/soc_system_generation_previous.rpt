@@ -158,6 +158,6 @@ Info: avalon_st_adapter: "mm_interconnect_3" instantiated altera_avalon_st_adapt
 Info: border: "hps_io" instantiated altera_interface_generator "border"
 Info: error_adapter_0: "avalon_st_adapter" instantiated error_adapter "error_adapter_0"
 Info: error_adapter_0: "avalon_st_adapter" instantiated error_adapter "error_adapter_0"
-Info: soc_system: Done "soc_system" with 59 modules, 165 files
+Info: soc_system: Done "soc_system" with 59 modules, 166 files
 Info: qsys-generate succeeded.
 Info: Finished: Create HDL design files for synthesis
