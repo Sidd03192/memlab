@@ -197,11 +197,12 @@ package fpnew_pkg;
     MERGED    // arithmetic units are contained within a merged unit holding multiple formats
   } unit_type_t;
 
-  // Array of unit types indexed by format
-  typedef unit_type_t [0:NUM_FP_FORMATS-1] fmt_unit_types_t;
+  // Array of unit types indexed by format. Keep the 2-bit enum encoding, but
+  // use a logic element type so synthesis parsers treat this as packable.
+  typedef logic [0:NUM_FP_FORMATS-1][1:0] fmt_unit_types_t;
 
   // Array of format-specific unit types by opgroup
-  typedef fmt_unit_types_t [0:NUM_OPGROUPS-1] opgrp_fmt_unit_types_t;
+  typedef logic [0:NUM_OPGROUPS-1][0:NUM_FP_FORMATS-1][1:0] opgrp_fmt_unit_types_t;
   // same with unsigned
   typedef fmt_unsigned_t [0:NUM_OPGROUPS-1] opgrp_fmt_unsigned_t;
 

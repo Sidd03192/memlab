@@ -3,15 +3,25 @@
 module fpnew_top
   import ozone_pkg::*;
 #(
-  parameter fpnew_pkg::fpu_features_t       Features       = fpnew_pkg::RV64D_Xsflt,
-  parameter fpnew_pkg::fpu_implementation_t Implementation = fpnew_pkg::DEFAULT_SNITCH,
   parameter fpnew_pkg::divsqrt_unit_t       DivSqrtSel     = fpnew_pkg::PULP,
+  parameter int unsigned                    FpuWidth       = 64,
+  parameter logic                           EnableVectors  = 1'b1,
+  parameter fpnew_pkg::fmt_logic_t          FpFmtMask      = 5'b11111,
+  parameter fpnew_pkg::ifmt_logic_t         IntFmtMask     = 4'b1111,
+  parameter fpnew_pkg::opgrp_fmt_unsigned_t PipeRegs       = '{default: 1},
+  parameter fpnew_pkg::opgrp_fmt_unit_types_t UnitTypes    = '{
+    '{default: fpnew_pkg::PARALLEL},
+    '{default: fpnew_pkg::DISABLED},
+    '{default: fpnew_pkg::PARALLEL},
+    '{default: fpnew_pkg::MERGED}
+  },
+  parameter fpnew_pkg::pipe_config_t        PipeConfig     = fpnew_pkg::BEFORE,
   parameter int unsigned                    TrueSIMDClass  = 0,
   parameter int unsigned                    EnableSIMDMask = 0,
   parameter int unsigned                    DEPTH          = 4,
   // Do not change
-  parameter int unsigned NumLanes     = fpnew_pkg::max_num_lanes(Features.Width, Features.FpFmtMask, Features.EnableVectors),
-  parameter int unsigned WIDTH        = Features.Width,
+  parameter int unsigned NumLanes     = fpnew_pkg::max_num_lanes(FpuWidth, FpFmtMask, EnableVectors),
+  parameter int unsigned WIDTH        = FpuWidth,
   parameter int unsigned NUM_OPERANDS = 3
 )(
   input  logic            clk,
@@ -103,9 +113,14 @@ module fpnew_top
   logic                    fpu_in_ready;
 
   fpnew_top_core #(
-    .Features       ( Features       ),
-    .Implementation ( Implementation ),
     .DivSqrtSel     ( DivSqrtSel     ),
+    .FpuWidth       ( FpuWidth       ),
+    .EnableVectors  ( EnableVectors  ),
+    .FpFmtMask      ( FpFmtMask      ),
+    .IntFmtMask     ( IntFmtMask     ),
+    .PipeRegs       ( PipeRegs       ),
+    .UnitTypes      ( UnitTypes      ),
+    .PipeConfig     ( PipeConfig     ),
     .TagWidth       ( TagWidth       ),
     .TrueSIMDClass  ( TrueSIMDClass  ),
     .EnableSIMDMask ( EnableSIMDMask )

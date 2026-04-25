@@ -76,7 +76,7 @@ module fpnew_opgroup_fmt_slice #(
 
   fpnew_pkg::status_t    [NUM_LANES-1:0] lane_status;
   logic                  [NUM_LANES-1:0] lane_ext_bit; // only the first one is actually used
-  fpnew_pkg::classmask_e [NUM_LANES-1:0] lane_class_mask;
+  logic [NUM_LANES-1:0][9:0] lane_class_mask;
   logic [NUM_LANES-1:0][TagWidth-1:0] lane_tags; // only the first one is actually used
   logic                  [NUM_LANES-1:0] lane_masks;
   logic                  [NUM_LANES-1:0] lane_vectorial, lane_busy, lane_is_class; // dito
