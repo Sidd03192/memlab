@@ -135,7 +135,14 @@ module ozone_shifter
   // Sequential logic — RS management + result register
   // -------------------------------------------------------
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n || flush) begin
+    if (!rst_n) begin
+      // Asynchronous reset
+      for (int i = 0; i < DEPTH; i++)
+        entries[i].valid <= 1'b0;
+      result <= '0;
+
+    end else if (flush) begin
+      // Synchronous flush
       for (int i = 0; i < DEPTH; i++)
         entries[i].valid <= 1'b0;
       result <= '0;

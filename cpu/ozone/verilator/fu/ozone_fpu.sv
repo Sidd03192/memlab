@@ -124,7 +124,27 @@ module ozone_rs_fpmult
   // Sequential: RS management + datapath FSM
   // -------------------------------------------------------
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n || flush) begin
+    if (!rst_n) begin
+      for (int i = 0; i < DEPTH; i++)
+        entries[i].valid <= 1'b0;
+      result           <= '0;
+      dp_state         <= FPM_IDLE;
+      dp_entry         <= '0;
+      multiplicand     <= '0;
+      shift_add        <= '0;
+      shift_add_counter<= '0;
+      sticky_r         <= 1'b0;
+      guard_r          <= 1'b0;
+      round_r          <= 1'b0;
+      result_sign      <= 1'b0;
+      result_exp       <= '0;
+      product          <= '0;
+      is_nan_result    <= 1'b0;
+      is_inf_result    <= 1'b0;
+      nan_value        <= '0;
+      rounding_mode    <= 2'b00;
+
+    end else if (flush) begin
       for (int i = 0; i < DEPTH; i++)
         entries[i].valid <= 1'b0;
       result           <= '0;

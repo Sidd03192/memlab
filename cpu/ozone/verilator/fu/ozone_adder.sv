@@ -404,4 +404,9 @@ module ozone_rs_adder
     end
   end
 
+  // -------------------------------------------------------
+  // CDB request outputs — directly from result register
+  // -------------------------------------------------------
+  assign cdb_out = result;
+
 endmodule
