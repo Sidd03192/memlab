@@ -51,7 +51,7 @@ module fpnew_opgroup_multifmt_slice #(
   // Do not change
   parameter int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
   parameter int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
-  parameter int unsigned NUM_SIMD_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, EnableVectors),
+  parameter int unsigned NUM_SIMD_LANES = 8,
   parameter int unsigned ExtRegEnaWidth = NumPipeRegs == 0 ? 1 : NumPipeRegs
 ) (
   input logic                                     clk_i,
@@ -97,7 +97,7 @@ module fpnew_opgroup_multifmt_slice #(
 
   localparam int unsigned MAX_FP_WIDTH   = fpnew_pkg::max_fp_width(FpFmtConfig);
   localparam int unsigned MAX_INT_WIDTH  = fpnew_pkg::max_int_width(IntFmtConfig);
-  localparam int unsigned NUM_LANES = fpnew_pkg::max_num_lanes(Width, FpFmtConfig, 1'b1);
+  localparam int unsigned NUM_LANES = NUM_SIMD_LANES;
   localparam int unsigned NUM_DIVSQRT_LANES = fpnew_pkg::num_divsqrt_lanes(Width, FpFmtConfig, 1'b1, DivSqrtSel);
   localparam int unsigned NUM_INT_FORMATS = fpnew_pkg::NUM_INT_FORMATS;
   // We will send the format information along with the data

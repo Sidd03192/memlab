@@ -29,7 +29,7 @@ module fpnew_opgroup_block #(
   // Do not change
   parameter int unsigned NUM_FORMATS  = fpnew_pkg::NUM_FP_FORMATS,
   parameter int unsigned NUM_OPERANDS = fpnew_pkg::num_operands(OpGroup),
-  parameter int unsigned NUM_LANES    = fpnew_pkg::max_num_lanes(Width, FpFmtMask, EnableVectors)
+  parameter int unsigned NUM_LANES    = 8
 ) (
   input logic                                     clk_i,
   input logic                                     rst_ni,
@@ -195,6 +195,7 @@ module fpnew_opgroup_block #(
       .NumPipeRegs   ( REG              ),
       .PipeConfig    ( PipeConfig       ),
       .TagWidth       ( TagWidth         )
+      ,.NUM_SIMD_LANES( NUM_LANES       )
     ) i_multifmt_slice (
       .clk_i,
       .rst_ni,

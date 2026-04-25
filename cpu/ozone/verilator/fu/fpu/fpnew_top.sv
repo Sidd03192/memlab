@@ -20,7 +20,7 @@ module fpnew_top
   parameter int unsigned                    EnableSIMDMask = 0,
   parameter int unsigned                    DEPTH          = 4,
   // Do not change
-  parameter int unsigned NumLanes     = fpnew_pkg::max_num_lanes(FpuWidth, FpFmtMask, EnableVectors),
+  parameter int unsigned NumLanes     = 8,
   parameter int unsigned WIDTH        = FpuWidth,
   parameter int unsigned NUM_OPERANDS = 3
 )(
@@ -123,7 +123,8 @@ module fpnew_top
     .PipeConfig     ( PipeConfig     ),
     .TagWidth       ( TagWidth       ),
     .TrueSIMDClass  ( TrueSIMDClass  ),
-    .EnableSIMDMask ( EnableSIMDMask )
+    .EnableSIMDMask ( EnableSIMDMask ),
+    .NumLanes       ( NumLanes       )
   ) i_fpu (
     .clk_i          ( clk                      ),
     .rst_ni         ( rst_n                    ),
