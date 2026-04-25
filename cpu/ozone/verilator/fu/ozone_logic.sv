@@ -110,7 +110,12 @@ module ozone_logic
     logic_exc         = 1'b0;
     logic_exc_code    = '0;
 
-    case (issue_entry.op)
+    if (issue_entry.is_sysreg) begin
+      // System-register ops are handled architecturally in Top on commit.
+      // For MSR, carry the source register value forward through the ROB.
+      // MRS is not needed on the current boot path, so it returns zero here.
+      logic_result = issue_entry.sysreg_read ? 64'b0 : issue_entry.Vj;
+    end else case (issue_entry.op)
       OP_AND: begin
         logic_result = issue_entry.Vj & vk_shifted;
       end

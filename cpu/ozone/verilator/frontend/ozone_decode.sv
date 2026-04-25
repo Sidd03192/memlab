@@ -40,6 +40,56 @@ module ozone_decode
     logic [3:0]  comb_ins_format;
     logic        comb_ins_valid;
 
+    function automatic logic [63:0] decode_logical_imm64(
+        input logic       n,
+        input logic [5:0] immr,
+        input logic [5:0] imms
+    );
+        logic [6:0]  len_src;
+        int          len;
+        int          esize;
+        int          levels;
+        int          s;
+        int          r;
+        logic [63:0] pattern;
+        logic [63:0] rotated;
+        logic [63:0] result;
+        begin
+            len_src = {n, ~imms};
+            len = -1;
+            for (int i = 6; i >= 0; i--) begin
+                if (len_src[i] && len < 0)
+                    len = i;
+            end
+
+            pattern = '0;
+            rotated = '0;
+            result  = '0;
+
+            if (len > 0) begin
+                esize  = 1 << len;
+                levels = esize - 1;
+                s      = imms & levels;
+                r      = immr & levels;
+
+                if (s != levels) begin
+                    for (int i = 0; i < 64; i++) begin
+                        pattern[i] = (i < esize && i <= s);
+                    end
+                    for (int i = 0; i < 64; i++) begin
+                        if (i < esize)
+                            rotated[i] = pattern[(i + r) % esize];
+                    end
+                    for (int i = 0; i < 64; i++) begin
+                        result[i] = rotated[i % esize];
+                    end
+                end
+            end
+
+            return result;
+        end
+    endfunction
+
     always_comb begin
         decoder_ready = decoder_state == 0;
     end
@@ -136,6 +186,12 @@ module ozone_decode
             comb_ins_valid  = 1'b1;
         end
 
+        // Format 10 (LI): logical immediate (AND/ORR/EOR/ANDS), 64-bit.
+        else if (insn_bits[31] == 1'b1 && insn_bits[28:23] == 6'b100100) begin
+            comb_ins_format = 4'd10;
+            comb_ins_valid  = 1'b1;
+        end
+
         // Format 3 (RR): shifted-register ALU and shift-by-register, 64-bit.
         //   Arithmetic shifted (ADD/ADDS/SUB/SUBS): bits[28:24]=01011, bit[21]=0.
         //   Logical shifted (AND/ANDS/ORR/ORN/EOR): bits[28:24]=01010.
@@ -197,6 +253,21 @@ module ozone_decode
                             // RI-format
                             packet.opcode <= {2'b0, insn_bits[31:23]};
                             packet.imm    <= {52'b0, insn_bits[21:10]};
+                            if (insn_bits[28:24] == 5'b10001) begin
+                                // ADD/SUB immediate use register 31 as SP.
+                                packet.reg_n <= insn_bits[9:5] == '1 ? 6'(31) : {1'b0, insn_bits[9:5]};
+                                packet.reg_d <= insn_bits[4:0] == '1 ? 6'(31) : {1'b0, insn_bits[4:0]};
+                            end else begin
+                                packet.reg_n <= insn_bits[9:5] == '1 ? 6'(32) : {1'b0, insn_bits[9:5]};
+                                packet.reg_d <= insn_bits[4:0] == '1 ? 6'(32) : {1'b0, insn_bits[4:0]};
+                            end
+                        end
+                        10: begin
+                            // Logical-immediate format.
+                            packet.opcode <= {9'b0, insn_bits[30:29]};
+                            packet.imm    <= decode_logical_imm64(insn_bits[22],
+                                                                  insn_bits[21:16],
+                                                                  insn_bits[15:10]);
                             packet.reg_n  <= insn_bits[9:5] == '1 ? 6'(32) : {1'b0, insn_bits[9:5]};
                             packet.reg_d  <= insn_bits[4:0] == '1 ? 6'(32) : {1'b0, insn_bits[4:0]};
                         end
@@ -266,6 +337,13 @@ module ozone_decode
                             4'd4: $display("[DECODE] RI-format | opcode=%b  imm=0x%03X  Rn=%0d  Rd=%0d",
                                            insn_bits[31:23], insn_bits[21:10],
                                            insn_bits[9:5], insn_bits[4:0]);
+                            4'd10: $display("[DECODE] LI-format | opc=%b  N=%0b immr=0x%02X imms=0x%02X Rn=%0d Rd=%0d imm=0x%016h",
+                                           insn_bits[30:29], insn_bits[22],
+                                           insn_bits[21:16], insn_bits[15:10],
+                                           insn_bits[9:5], insn_bits[4:0],
+                                           decode_logical_imm64(insn_bits[22],
+                                                                insn_bits[21:16],
+                                                                insn_bits[15:10]));
                             4'd5: $display("[DECODE] B1-format | opcode=%b  imm26=%0d",
                                            insn_bits[31:26],
                                            $signed({{6{insn_bits[25]}}, insn_bits[25:0]}));
@@ -412,6 +490,22 @@ module ozone_decode
                             end
                         end
 
+                        4'd10: begin // Logical immediate
+                            uop_out[0].a        <= packet.reg_d;
+                            uop_out[0].b        <= packet.reg_n;
+                            uop_out[0].imm_opnd <= 1'b1;
+                            uop_out[0].imm_bits <= packet.imm;
+                            case (packet.opcode[1:0])
+                                2'b00: uop_out[0].uop_type <= UOP_AND;
+                                2'b01: uop_out[0].uop_type <= UOP_OR;
+                                2'b10: uop_out[0].uop_type <= UOP_XOR;
+                                2'b11: begin
+                                    uop_out[0].uop_type  <= UOP_AND;
+                                    uop_out[0].set_flags <= 1'b1;
+                                end
+                            endcase
+                        end
+
                         4'd4: begin  // RI: add/sub immediate or bitfield (UBFM/SBFM)
                             // TODO: Maybe change this if FP stuff ends up here.
                             if (insn_bits[28:24] != 5'b10001) begin  // UBFM / SBFM: shift operation, single uop
@@ -485,6 +579,9 @@ module ozone_decode
                                 uop_out[0].uop_type <= UOP_OR;
                                 uop_out[0].imm_opnd <= 1'b1;
                                 uop_out[0].imm_bits <= {48'b0, insn_bits[20:5]};  // sysreg ID
+                                uop_out[0].sysreg_op <= 1'b1;
+                                uop_out[0].sysreg_read <= insn_bits[21];
+                                uop_out[0].sysreg_id <= insn_bits[20:5];
                                 if (insn_bits[21]) begin  // MRS: sysreg -> Xt
                                     uop_out[0].a <= packet.reg_d;
                                     uop_out[0].b <= 6'd32;
@@ -493,10 +590,15 @@ module ozone_decode
                                     uop_out[0].b <= packet.reg_d;
                                 end
                             end else begin  // ADRP / SVC / NOP
+                                logic [63:0] adrp_page_base;
+                                adrp_page_base = {16'b0, insn_pc} & ~64'hFFF;
                                 uop_out[0].uop_type <= UOP_ADD;
                                 uop_out[0].a        <= packet.reg_d;
+                                uop_out[0].b        <= 6'd32;
                                 uop_out[0].imm_opnd <= 1'b1;
-                                uop_out[0].imm_bits <= packet.imm;
+                                // Materialize the final page base directly:
+                                // ADRP writes (PC & ~0xFFF) + signext(immhi:immlo << 12).
+                                uop_out[0].imm_bits <= adrp_page_base + packet.imm;
                             end
                         end
 

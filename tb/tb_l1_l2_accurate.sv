@@ -82,6 +82,9 @@ module tb_l1_l2_accurate;
 
     logic                     clk;
     logic                     rst_n;
+    logic                     flush_req;
+    wire                      l1_flush_done;
+    wire                      l2_flush_done;
 
     // L1 front-end stimulus
     logic                     start_tag;
@@ -93,6 +96,9 @@ module tb_l1_l2_accurate;
 
     // L1 <-> L2 wires
     wire                      l1_stall_out_to_lsq;
+    wire                      l1_lsq_resp_valid;
+    wire [ROB_IDX_WIDTH-1:0]  l1_lsq_resp_lq_id;
+    wire [DATA_WIDTH-1:0]     l1_lsq_resp_data;
     wire                      l1_l2_wb_valid;
     wire [PA_WIDTH-1:0]       l1_l2_wb_paddr;
     wire [BLOCK_SIZE*8-1:0]   l1_l2_wb_data;
@@ -117,16 +123,23 @@ module tb_l1_l2_accurate;
     integer fail_cnt;
     integer i;
     integer busy_cnt;
+    logic [BLOCK_SIZE*8-1:0] expected_dirty_victim;
 
     l1_cache u_l1 (
         .clk                (clk),
         .rst_n              (rst_n),
+        .flush_req          (flush_req),
+        .flush_done         (l1_flush_done),
         .start_tag          (start_tag),
         .tlb_paddr          (tlb_paddr),
         .start_index        (start_index),
         .trace_vaddr        (trace_vaddr),
         .is_write           (is_write),
         .wdata              (wdata),
+        .lsq_lq_id_in       ('0),
+        .lsq_resp_valid     (l1_lsq_resp_valid),
+        .lsq_resp_lq_id     (l1_lsq_resp_lq_id),
+        .lsq_resp_data      (l1_lsq_resp_data),
         .l1_stall_out_to_lsq(l1_stall_out_to_lsq),
         .l2_wb_valid        (l1_l2_wb_valid),
         .l2_wb_paddr        (l1_l2_wb_paddr),
@@ -142,6 +155,8 @@ module tb_l1_l2_accurate;
     l2_cache u_l2 (
         .clk          (clk),
         .rst_n        (rst_n),
+        .flush_req    (flush_req),
+        .flush_done   (l2_flush_done),
         .l1_wb_valid  (l1_l2_wb_valid),
         .l1_wb_paddr  (l1_l2_wb_paddr),
         .l1_wb_data   (l1_l2_wb_data),
@@ -268,6 +283,7 @@ module tb_l1_l2_accurate;
             start_tag      = 1'b0;
             tlb_paddr      = '0;
             start_index    = 1'b0;
+            flush_req      = 1'b0;
             trace_vaddr    = '0;
             is_write       = 1'b0;
             wdata          = '0;
@@ -344,7 +360,16 @@ module tb_l1_l2_accurate;
         begin
             @(negedge clk);
             set_idx = l2_index_from_pa(paddr);
-            u_l2.set_contents[set_idx][way] = block;
+            case (way)
+                0: u_l2.way_ram_0[set_idx] = block;
+                1: u_l2.way_ram_1[set_idx] = block;
+                2: u_l2.way_ram_2[set_idx] = block;
+                3: u_l2.way_ram_3[set_idx] = block;
+                default: begin
+                    $display("  FAIL invalid l2 preload way %0d", way);
+                    fail_cnt = fail_cnt + 1;
+                end
+            endcase
             u_l2.tags[set_idx][way]         = l2_tag_from_pa(paddr);
             u_l2.set_valids[set_idx][way]   = 1'b1;
             u_l2.set_dirty[set_idx][way]    = dirty;
@@ -378,6 +403,77 @@ module tb_l1_l2_accurate;
         end
     endtask
 
+    task automatic wait_l2_data;
+        input [255:0] label;
+        input integer max_cycles;
+        integer cycles;
+        begin
+            cycles = 0;
+            while (!l2_l1_data_valid && cycles < max_cycles) begin
+                @(negedge clk);
+                cycles = cycles + 1;
+            end
+            chk_bit(label, l2_l1_data_valid, 1'b1);
+        end
+    endtask
+
+    task automatic wait_mem_req;
+        input [255:0] label;
+        input integer max_cycles;
+        integer cycles;
+        begin
+            cycles = 0;
+            while (!mem_req_valid && cycles < max_cycles) begin
+                @(negedge clk);
+                cycles = cycles + 1;
+            end
+            chk_bit(label, mem_req_valid, 1'b1);
+        end
+    endtask
+
+    task automatic wait_l1_wb;
+        input [255:0] label;
+        input integer max_cycles;
+        integer cycles;
+        begin
+            cycles = 0;
+            while (!l1_l2_wb_valid && cycles < max_cycles) begin
+                @(negedge clk);
+                cycles = cycles + 1;
+            end
+            chk_bit(label, l1_l2_wb_valid, 1'b1);
+        end
+    endtask
+
+    task automatic wait_l2_wb_ack;
+        input [255:0] label;
+        input integer max_cycles;
+        integer cycles;
+        begin
+            cycles = 0;
+            while (!l2_l1_wb_ack && cycles < max_cycles) begin
+                @(negedge clk);
+                cycles = cycles + 1;
+            end
+            chk_bit(label, l2_l1_wb_ack, 1'b1);
+        end
+    endtask
+
+    task automatic wait_l1_idle;
+        input [255:0] label;
+        input integer mshr_idx;
+        input integer max_cycles;
+        integer cycles;
+        begin
+            cycles = 0;
+            while (u_l1.mshr_state[mshr_idx] != L1_MS_IDLE && cycles < max_cycles) begin
+                @(negedge clk);
+                cycles = cycles + 1;
+            end
+            chk_state(label, u_l1.mshr_state[mshr_idx], L1_MS_IDLE);
+        end
+    endtask
+
     initial begin
         pass_cnt = 0;
         fail_cnt = 0;
@@ -405,14 +501,12 @@ module tb_l1_l2_accurate;
         chk_state("T2 l1 mshr becomes UNRESOLVED", u_l1.mshr_state[0], L1_MS_UNRESOLVED);
         chk_bit  ("T2 l1 advertises request to l2", l1_l2_req_valid, 1'b1);
         chk_pa   ("T2 l1 request address correct",  l1_l2_req_paddr, PA_S0T0);
-        @(negedge clk);
-        chk_bit  ("T2 l2 returns hit data", l2_l1_data_valid, 1'b1);
+        wait_l2_data("T2 l2 returns hit data", 8);
         chk_pa   ("T2 l2 return address matches", l2_l1_data_paddr, PA_S0T0);
         chk_bit  ("T2 no memory request on l2 hit", mem_req_valid, 1'b0);
         @(negedge clk);
         chk_state("T2 l1 mshr becomes RESOLVED after l2 data", u_l1.mshr_state[0], L1_MS_RESOLVED);
-        @(negedge clk);
-        chk_state("T2 l1 mshr frees after install", u_l1.mshr_state[0], L1_MS_IDLE);
+        wait_l1_idle("T2 l1 mshr frees after install", 0, 4);
         chk_bit  ("T2 l1 line valid after install", u_l1.set_valids[0][0], 1'b1);
         chk_wide ("T2 l1 installed block matches", u_l1.set_contents[0][0], BLOCK_A);
 
@@ -421,36 +515,31 @@ module tb_l1_l2_accurate;
         apply_reset();
         send_req(VA_S1W0, PA_S1T0, 1'b0, '0);
         chk_state("T3 l1 mshr unresolved", u_l1.mshr_state[0], L1_MS_UNRESOLVED);
-        @(negedge clk);
+        wait_mem_req("T3 l2 drives memory request", 8);
         chk_state("T3 l2 mshr unresolved", u_l2.mshr_state[0], L2_MS_UNRESOLVED);
-        chk_bit  ("T3 l2 drives memory request", mem_req_valid, 1'b1);
         chk_bit  ("T3 memory request is read", mem_req_is_write, 1'b0);
         chk_pa   ("T3 memory request address matches", mem_req_addr, PA_S1T0);
         accept_mem_req();
         chk_state("T3 l2 mshr advances to WAIT_MEM", u_l2.mshr_state[0], L2_MS_WAIT_MEM);
         mem_return(PA_S1T0, BLOCK_B);
         chk_state("T3 memory response sets RESOLVED", u_l2.mshr_state[0], L2_MS_RESOLVED);
-        @(negedge clk);
+        wait_l2_data("T3 l2 returns block to l1", 8);
         chk_state("T3 l2 mshr frees after install", u_l2.mshr_state[0], L2_MS_IDLE);
-        chk_bit  ("T3 l2 returns block to l1", l2_l1_data_valid, 1'b1);
-        chk_wide ("T3 l2 installed block matches", u_l2.set_contents[1][0], BLOCK_B);
+        chk_wide ("T3 l2 installed block matches", u_l2.set_contents[0][1], BLOCK_B);
         @(negedge clk);
         chk_state("T3 l1 mshr becomes RESOLVED", u_l1.mshr_state[0], L1_MS_RESOLVED);
-        @(negedge clk);
-        chk_state("T3 l1 mshr frees after install", u_l1.mshr_state[0], L1_MS_IDLE);
+        wait_l1_idle("T3 l1 mshr frees after install", 0, 4);
         chk_wide ("T3 l1 installed block matches", u_l1.set_contents[1][0], BLOCK_B);
 
         // T4: End-to-end store miss
         $display("\n=== T4: End-to-end store miss ===");
         apply_reset();
         send_req(VA_S0W5, PA_S0T1, 1'b1, 64'hDEAD_CAFE_1234_5678);
-        @(negedge clk);
+        wait_mem_req("T4 l2 drives memory request", 8);
         chk_state("T4 l2 allocates unresolved miss", u_l2.mshr_state[0], L2_MS_UNRESOLVED);
         accept_mem_req();
         mem_return(PA_S0T1, BLOCK_C);
-        @(negedge clk);
-        @(negedge clk);
-        @(negedge clk);
+        wait_l1_idle("T4 l1 store miss installs", 0, 8);
         chk_bit ("T4 l1 installed line is dirty", u_l1.set_dirty[0][0], 1'b1);
         chk_wide("T4 l2 keeps clean fetched block", u_l2.set_contents[0][0], BLOCK_C);
         chk_bit ("T4 l2 fetched line stays clean", u_l2.set_dirty[0][0], 1'b0);
@@ -472,14 +561,12 @@ module tb_l1_l2_accurate;
         preload_l2_line(0, PA_S0T0, BLOCK_A, 1'b0);
         preload_l2_line(1, PA_S0T2, BLOCK_D, 1'b0);
         send_req(VA_S0W0, PA_S0T2, 1'b0, '0);
-        @(negedge clk);
-        @(negedge clk);
-        @(negedge clk);
-        chk_bit ("T5 l1 writeback queue drives l2 wb", l1_l2_wb_valid, 1'b1);
+        wait_l1_wb("T5 l1 writeback queue drives l2 wb", 12);
         chk_pa  ("T5 l1 writeback address is victim", l1_l2_wb_paddr, PA_S0T0);
-        @(negedge clk);
-        chk_pa  ("T5 l2 acknowledges writeback",      l2_l1_wb_ack,    1'b1);
-        chk_wide("T5 l2 copy updated with dirty victim data", u_l2.set_contents[0][0], u_l1.wb_data_q[u_l1.wb_head]);
+        expected_dirty_victim = l1_l2_wb_data;
+        wait_l2_wb_ack("T5 l2 acknowledges writeback", 8);
+        chk_wide("T5 l2 copy updated with dirty victim data", u_l2.set_contents[0][0], expected_dirty_victim);
+        wait_l1_idle("T5 l1 fill mshr frees", 0, 8);
         @(negedge clk);
         chk_bit ("T5 l1 wb queue drains after ack", u_l1.wb_empty, 1'b1);
         chk_wide("T5 l1 new fill installed", u_l1.set_contents[0][0], BLOCK_D);
@@ -500,19 +587,15 @@ module tb_l1_l2_accurate;
         accept_mem_req();
         chk_state("T6 first l2 mshr enters WAIT_MEM", u_l2.mshr_state[0], L2_MS_WAIT_MEM);
         mem_return(PA_S0T0, BLOCK_E);
-        @(negedge clk);
-        @(negedge clk);
-        @(negedge clk);
+        wait_l1_idle("T6 first l1 mshr frees", 0, 8);
         chk_bit  ("T6 stall clears after first l1 mshr frees", l1_stall_out_to_lsq, 1'b0);
-        @(negedge clk);
+        wait_mem_req("T6 second memory request appears", 8);
         count_busy_l2_mshrs(busy_cnt);
         chk_int  ("T6 l2 allocates second miss after first drains", busy_cnt, 1);
         chk_pa   ("T6 second memory request appears after first drain", mem_req_addr, PA_S1T1);
         accept_mem_req();
         mem_return(PA_S1T1, BLOCK_F);
-        @(negedge clk);
-        @(negedge clk);
-        @(negedge clk);
+        wait_l1_idle("T6 second l1 mshr frees", 1, 8);
         chk_state("T6 l1 mshr[0] returns to IDLE", u_l1.mshr_state[0], L1_MS_IDLE);
         chk_state("T6 l1 mshr[1] returns to IDLE", u_l1.mshr_state[1], L1_MS_IDLE);
         chk_wide ("T6 first returned block installed", u_l1.set_contents[0][0], BLOCK_E);

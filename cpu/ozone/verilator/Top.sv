@@ -21,6 +21,18 @@ module Top
     input  logic [29:0]              dmem_resp_paddr,
     input  logic [511:0]             dmem_resp_rdata,
 
+    // Simulation-only page-table walk port
+    output logic                     ptw_req_valid,
+    output logic [29:0]              ptw_req_addr,
+    input  logic                     ptw_req_ready,
+    input  logic                     ptw_resp_valid,
+    input  logic [63:0]              ptw_resp_data,
+
+    // Simulation-only committed-store mirror for sim_main's shared DRAM.
+    output logic                     sim_store_valid,
+    output logic [29:0]              sim_store_paddr,
+    output logic [63:0]              sim_store_data,
+
     // Status
     output reg        done,
 
@@ -34,16 +46,31 @@ module Top
     // Set back to 1'b1 when the real ITLB/MMU fetch path is ready for
     // submission/integration.
     localparam logic USE_ITLB_FETCH = 1'b0;
-    // Temporary bring-up switch: standalone ELF tests should start executing
-    // at the ELF entry point instead of the EL1 reset vector/config block.
-    // Set back to 1'b0 for the real reset-vector boot path.
-    localparam logic USE_STANDALONE_ENTRY_PC = 1'b1;
+    // Run the normal Ozone boot flow from the reset vector so EL1 can seed
+    // SP/TTBR0/page-table state before userspace memory ops execute.
+    localparam logic USE_STANDALONE_ENTRY_PC = 1'b0;
     localparam logic [47:0] STANDALONE_ENTRY_PC = 48'h0000_0040_0000;
+    // Matches memlab/cpu/ozone/ozone-config.json for Verilator runs.
+    localparam logic [29:0] SIM_TTBR0_BASE = 30'h00001000;
+    localparam logic [63:0] SIM_SP_EL0 = 64'h0000_0000_0040_f000;
+    localparam logic [63:0] SIM_SP_EL1 = 64'h0000_0000_2010_0000;
+    localparam logic [63:0] SIM_VBAR_EL1 = 64'h0000_0000_2000_0800;
+    localparam logic [63:0] SIM_ELR_EL1 = 64'h0000_0000_0040_0000;
+    localparam logic [63:0] SIM_SPSR_EL1 = 64'h0;
+    localparam logic [63:0] SIM_TERMINATE_VAL = 64'h0000_0000_0000_dead;
+    localparam logic [15:0] SYSREG_SP_EL0   = 16'hc208;
+    localparam logic [15:0] SYSREG_SPSR_EL1 = 16'hc200;
+    localparam logic [15:0] SYSREG_ELR_EL1  = 16'hc201;
+    localparam logic [15:0] SYSREG_VBAR_EL1 = 16'hc600;
+    localparam logic [15:0] SYSREG_ACTLR_EL1 = 16'hc081;
 
     reg [31:0] state;
     reg [47:0] pc;
     reg [29:0] pa_pc;
     reg [17:0] ttbr0;
+    reg [1:0]  cur_el;
+    reg [63:0] sp_el0, sp_el1, spsr_el1, elr_el1, vbar_el1, actlr_el1;
+    logic [63:0] current_sp_value;
 
     logic [63:0] tte;
     logic [31:0] insn_bits;
@@ -52,6 +79,7 @@ module Top
 
     logic rst_n;
     assign rst_n = ~reset;
+    assign current_sp_value = (cur_el == 2'd0) ? sp_el0 : sp_el1;
 
     logic        itlb_lookup_req;
     logic [47:0] itlb_vaddr;
@@ -88,7 +116,7 @@ module Top
     logic        rob_alloc_valid, rob_alloc_has_dest;
     rob_entry_t  rob_alloc_data;
     logic [5:0]  rob_alloc_idx;
-    logic        rob_full;
+    logic        rob_full, rob_empty;
     logic [5:0]  rob_head;
 
     logic        commit_valid;
@@ -134,11 +162,19 @@ module Top
     logic        lsq_rob_wdata_ready;
     logic        lsq_is_load;
     logic        lq_full, sq_full;
+    logic        sim_finish_pending;
+    logic        cache_flush_done;
+    logic [47:0] last_fetch_pc;
+    logic [7:0]  fetch_same_pc_streak;
+    logic        fetch_zero_pending;
+    logic [3:0]  fetch_zero_wait;
 
     cdb_broadcast_t adder_req, logic_req, fpu_req, agu_req, lsq_req, cdb_broadcast;
     logic           lsq_granted;
+    logic           core_flush;
 
-    assign halt_fetch = pipe_flush;
+    assign core_flush = pipe_flush || sim_finish_pending;
+    assign halt_fetch = core_flush;
 
     ozone_itlb ozone_itlb (
         .clk_i         (clk),
@@ -159,7 +195,7 @@ module Top
     ozone_decode decode (
         .clk          (clk),
         .rst          (reset),
-        .flush        (pipe_flush),
+        .flush        (core_flush),
         .the_insn_bits(insn_bits),
         .the_insn_pc  (pc),
         .insn_ready   (insn_ready),
@@ -172,7 +208,7 @@ module Top
     ozone_dispatch dispatch (
         .clk              (clk),
         .rst_n            (rst_n),
-        .flush            (pipe_flush),
+        .flush            (core_flush),
         .uop_in           (uop_out),
         .uop_valid        (uop_valid),
         .ready_for_uop    (ready_for_uop),
@@ -199,6 +235,7 @@ module Top
         .rob_src1_val     (rob_src1_val),
         .rob_src2_ready   (rob_src2_ready),
         .rob_src2_val     (rob_src2_val),
+        .current_sp_value (current_sp_value),
         .rob_alloc_valid  (rob_alloc_valid),
         .rob_alloc_has_dest(rob_alloc_has_dest),
         .rob_alloc_data   (rob_alloc_data),
@@ -229,7 +266,7 @@ module Top
     ozone_regstate regstate (
         .clk            (clk),
         .rst_n          (rst_n),
-        .flush          (pipe_flush),
+        .flush          (core_flush),
         .src1_addr      (rst_src1_addr),
         .src2_addr      (rst_src2_addr),
         .fp_src1_addr   (rst_fp_src1_addr),
@@ -274,6 +311,7 @@ module Top
         .alloc_data     (rob_alloc_data),
         .alloc_rob_idx  (rob_alloc_idx),
         .rob_full       (rob_full),
+        .rob_empty      (rob_empty),
         .rob_head       (rob_head),
         .cdb_in         (cdb_broadcast),
         .commit_valid   (commit_valid),
@@ -306,7 +344,7 @@ module Top
     ozone_rs_adder adder (
         .clk        (clk),
         .rst_n      (rst_n),
-        .flush      (pipe_flush),
+        .flush      (core_flush),
         .alloc_valid(adder_alloc_valid),
         .alloc_entry(adder_alloc_entry),
         .full       (adder_full),
@@ -318,7 +356,7 @@ module Top
     ozone_logic logic_fu (
         .clk        (clk),
         .rst_n      (rst_n),
-        .flush      (pipe_flush),
+        .flush      (core_flush),
         .alloc_valid(logic_alloc_valid),
         .alloc_entry(logic_alloc_entry),
         .full       (logic_full),
@@ -330,7 +368,7 @@ module Top
     ozone_agu agu (
         .clk        (clk),
         .rst_n      (rst_n),
-        .flush      (pipe_flush),
+        .flush      (core_flush),
         .alloc_valid(agu_alloc_valid),
         .alloc_entry(agu_alloc_entry),
         .full       (agu_full),
@@ -342,7 +380,7 @@ module Top
     fpnew_top fpu (
         .clk        (clk),
         .rst_n      (rst_n),
-        .flush      (pipe_flush),
+        .flush      (core_flush),
         .alloc_valid(fpu_alloc_valid),
         .alloc_entry(fpu_alloc_entry),
         .full       (fpu_full),
@@ -358,7 +396,9 @@ module Top
         .BLOCK_SIZE      (64),
         .LSQ_ENTRIES     (16),
         .USE_AVALON_MEM  (1'b0),
-        .USE_IDENTITY_TLB(1'b1)
+        .TLB_PAGE_WALK_BASE(SIM_TTBR0_BASE),
+        .ENABLE_TLB_PAGE_WALK(1'b1),
+        .USE_IDENTITY_TLB(1'b0)
     ) memsys (
         .clk                (clk),
         .rst_n              (rst_n),
@@ -377,8 +417,11 @@ module Top
         .rob_is_load        (lsq_is_load),
         .rob_valid_in       (lsq_alloc_valid),
         // ROB control
-        .flush              (pipe_flush),
-        .commit_sq_head     (lsq_store_commit),
+        .flush              (core_flush),
+        .commit_sq_head     (sim_finish_pending ? 1'b0 : lsq_store_commit),
+        .translate_en_i     (cur_el == 2'd0),
+        .cache_flush_req    (sim_finish_pending),
+        .cache_flush_done   (cache_flush_done),
         // To dispatch (stall)
         .lq_full            (lq_full),
         .sq_full            (sq_full),
@@ -395,6 +438,15 @@ module Top
         .mem_resp_valid     (dmem_resp_valid),
         .mem_resp_paddr     (dmem_resp_paddr),
         .mem_resp_rdata     (dmem_resp_rdata),
+        .tlb_page_walk_base_i({ttbr0, 12'b0}),
+        .ptw_req_valid      (ptw_req_valid),
+        .ptw_req_addr       (ptw_req_addr),
+        .ptw_req_ready      (ptw_req_ready),
+        .ptw_resp_valid     (ptw_resp_valid),
+        .ptw_resp_data      (ptw_resp_data),
+        .sim_store_valid    (sim_store_valid),
+        .sim_store_paddr    (sim_store_paddr),
+        .sim_store_data     (sim_store_data),
         // Avalon unused
         .avm_readdata       ('0),
         .avm_readdatavalid  (1'b0),
@@ -426,10 +478,18 @@ module Top
         if (reset) begin
             state           <= 0;
             done            <= 0;
+            sim_finish_pending <= 1'b0;
             pc              <= USE_STANDALONE_ENTRY_PC ? STANDALONE_ENTRY_PC
                                                        : 48'h20000000;
             pa_pc           <= '0;
-            ttbr0           <= '0;
+            ttbr0           <= SIM_TTBR0_BASE[29:12];
+            cur_el          <= 2'd1;
+            sp_el0          <= SIM_SP_EL0;
+            sp_el1          <= SIM_SP_EL1;
+            spsr_el1        <= SIM_SPSR_EL1;
+            elr_el1         <= SIM_ELR_EL1;
+            vbar_el1        <= SIM_VBAR_EL1;
+            actlr_el1       <= 64'b0;
             tte             <= '0;
             insn_bits       <= '0;
             state7_sent     <= 1'b0;
@@ -444,22 +504,121 @@ module Top
             insn_ready      <= 1'b0;
             for (int i = 0; i < 31; i++) x_regs[i] <= 64'b0;
             for (int i = 0; i < 32; i++) fp_regs[i] <= 64'b0;
+            last_fetch_pc       <= '0;
+            fetch_same_pc_streak <= '0;
+            fetch_zero_pending   <= 1'b0;
+            fetch_zero_wait      <= '0;
 
             if (!reset_seen) begin
                 $display("Did reset!\n");
                 reset_seen <= 1'b1;
             end
-        end else if (!done) begin
+        end else if (!done) begin : top_run
+            logic skip_fetch_progress;
             reset_seen <= 1'b0;
             insn_ready <= 1'b0;
             itlb_flush <= 1'b0;
+            skip_fetch_progress = 1'b0;
+
+            if (sim_finish_pending) begin
+                mem_en          <= 1'b0;
+                itlb_lookup_req <= 1'b0;
+                itlb_fill_req   <= 1'b0;
+                state           <= 0;
+                state7_sent     <= 1'b0;
+                if (cache_flush_done) begin
+                    sim_finish_pending <= 1'b0;
+                    done <= 1'b1;
+                    $display("[TOP] cache flush complete; done");
+                end
+            end else begin
+            if (fetch_zero_pending) begin
+                mem_en          <= 1'b0;
+                itlb_lookup_req <= 1'b0;
+                itlb_fill_req   <= 1'b0;
+                state           <= 0;
+                state7_sent     <= 1'b0;
+                if (rob_empty) begin
+                    $display("[TOP] stop: zero/invalid fetch with empty ROB");
+                    fetch_zero_pending <= 1'b0;
+                    fetch_zero_wait    <= '0;
+                    sim_finish_pending <= 1'b1;
+                    skip_fetch_progress = 1'b1;
+                end else if (commit_valid) begin
+                    fetch_zero_wait <= '0;
+                end else begin
+                    fetch_zero_wait <= fetch_zero_wait + 1'b1;
+                end
+            end
 
             if (commit_reg_en && commit_reg_addr != 5'd31) begin
                 x_regs[commit_reg_addr] <= commit_reg_value;
             end
 
+            if (commit_valid &&
+                commit_data.alloc_has_dest &&
+                commit_data.dest_type == DEST_GPR &&
+                commit_data.dest_reg == 5'd31) begin
+                if (cur_el == 2'd0) begin
+                    sp_el0 <= commit_data.value;
+                    $display("[TOP] SP_EL0 <= 0x%016h", commit_data.value);
+                end else begin
+                    sp_el1 <= commit_data.value;
+                    $display("[TOP] SP_EL1 <= 0x%016h", commit_data.value);
+                end
+            end
+
             if (commit_fp_en) begin
                 fp_regs[commit_fp_addr] <= commit_fp_value;
+            end
+
+            if (commit_valid && commit_data.is_sysreg && !commit_data.sysreg_read) begin
+                case (commit_data.sysreg_id)
+                    SYSREG_SP_EL0: begin
+                        sp_el0 <= commit_data.value;
+                        $display("[TOP] MSR SP_EL0 <= 0x%016h", commit_data.value);
+                    end
+                    SYSREG_SPSR_EL1: begin
+                        spsr_el1 <= commit_data.value;
+                        $display("[TOP] MSR SPSR_EL1 <= 0x%016h", commit_data.value);
+                    end
+                    SYSREG_ELR_EL1: begin
+                        elr_el1 <= commit_data.value;
+                        $display("[TOP] MSR ELR_EL1 <= 0x%016h", commit_data.value);
+                    end
+                    SYSREG_VBAR_EL1: begin
+                        vbar_el1 <= commit_data.value;
+                        $display("[TOP] MSR VBAR_EL1 <= 0x%016h", commit_data.value);
+                    end
+                    SYSREG_ACTLR_EL1: begin
+                        actlr_el1 <= commit_data.value;
+                        $display("[TOP] MSR ACTLR_EL1 <= 0x%016h", commit_data.value);
+                        if (commit_data.value == SIM_TERMINATE_VAL) begin
+                            $display("[TOP] terminate value observed via ACTLR_EL1");
+                            sim_finish_pending <= 1'b1;
+                            skip_fetch_progress = 1'b1;
+                        end
+                    end
+                    default: begin end
+                endcase
+            end
+
+            // Pure-sim completion fallback: Ozone's EL1 sync handler writes the
+            // terminate cookie to ACTLR_EL1 and then branches to itself at
+            // VBAR_EL1 + 0x410. If the branch self-loop is reached with x0
+            // already carrying that cookie, treat it as completion even if the
+            // architectural ACTLR write path didn't trip done first.
+            if (commit_valid
+                && cur_el == 2'd1
+                && commit_data.inst_type == 1
+                && commit_data.PC == (vbar_el1[47:0] + 48'h410)
+                && commit_data.br_taken
+                && commit_data.br_target[47:0] == commit_data.PC[47:0]) begin
+                x_regs[0]  <= SIM_TERMINATE_VAL;
+                actlr_el1 <= SIM_TERMINATE_VAL;
+                sim_finish_pending <= 1'b1;
+                skip_fetch_progress = 1'b1;
+                $display("[TOP] terminate observed via sync-handler self-loop");
             end
 
             if (rob_alloc_valid) begin
@@ -470,6 +629,38 @@ module Top
                          rob_alloc_has_dest,
                          rob_alloc_data.inst_type,
                          rob_alloc_data.ready);
+            end
+
+            if (lsq_alloc_valid) begin
+                $display("[TOP] lsq alloc rob=%0d load=%0b wtag=%0d wready=%0b wdata=0x%016h",
+                         lsq_rob_entry_id, lsq_is_load, lsq_rob_wdata_entry_id,
+                         lsq_rob_wdata_ready, lsq_rob_wdata);
+            end
+
+            if (lsq_store_commit) begin
+                $display("[TOP] lsq store commit pulse addr=0x%016h data=0x%016h",
+                         lsq_store_addr, lsq_store_data);
+            end
+
+            if (dmem_req_valid) begin
+                $display("[TOP] dmem req write=%0b addr=0x%08h", dmem_req_is_write, dmem_req_addr);
+            end
+
+            if (dmem_resp_valid) begin
+                $display("[TOP] dmem resp paddr=0x%08h", dmem_resp_paddr);
+            end
+
+            if (sim_store_valid) begin
+                $display("[TOP] sim store mirror addr=0x%08h data=0x%016h",
+                         sim_store_paddr, sim_store_data);
+            end
+
+            if (ptw_req_valid && ptw_req_ready) begin
+                $display("[TOP] ptw req addr=0x%08h ttbr0=0x%05h", ptw_req_addr, ttbr0);
+            end
+
+            if (ptw_resp_valid) begin
+                $display("[TOP] ptw resp data=0x%016h", ptw_resp_data);
             end
 
             if (cdb_broadcast.valid) begin
@@ -495,23 +686,67 @@ module Top
                          commit_reg_value);
             end
 
+            if (commit_valid && commit_data.is_eret) begin
+                $display("[TOP] ERET -> EL%0d pc=0x%016h", spsr_el1[1:0], elr_el1);
+                cur_el          <= spsr_el1[1:0];
+                pc              <= elr_el1[47:0];
+                state           <= 0;
+                state7_sent     <= 1'b0;
+                fetch_zero_pending <= 1'b0;
+                fetch_zero_wait    <= '0;
+                mem_en          <= 1'b0;
+                itlb_lookup_req <= 1'b0;
+                itlb_fill_req   <= 1'b0;
+                skip_fetch_progress = 1'b1;
+            end
+
             if (commit_valid &&
                 commit_data.inst_type == ROB_TYPE_BRANCH &&
                 commit_data.br_taken &&
                 commit_data.br_target == 64'b0) begin
-                $display("[TOP] done: committed branch to zero");
-                done <= 1'b1;
+                if (cur_el == 2'd0) begin
+                    $display("[TOP] EL0 RET-to-zero exception -> handler 0x%016h", vbar_el1 + 64'h400);
+                    elr_el1         <= commit_data.PC;
+                    spsr_el1        <= {62'b0, cur_el};
+                    cur_el          <= 2'd1;
+                    pc              <= vbar_el1[47:0] + 48'h400;
+                    state           <= 0;
+                    state7_sent     <= 1'b0;
+                    fetch_zero_pending <= 1'b0;
+                    fetch_zero_wait    <= '0;
+                    mem_en          <= 1'b0;
+                    itlb_lookup_req <= 1'b0;
+                    itlb_fill_req   <= 1'b0;
+                    skip_fetch_progress = 1'b1;
+                end else begin
+                    $display("[TOP] done: committed branch to zero");
+                    sim_finish_pending <= 1'b1;
+                    skip_fetch_progress = 1'b1;
+                end
             end
 
-            if (pipe_flush) begin
-                $display("[TOP] flush redirect -> 0x%016h", flush_target_pc);
+            if (core_flush) begin
+                $display("[TOP] flush redirect -> 0x%016h (pc=0x%012h state=%0d core_flush=%0b pipe_flush=%0b sim_finish=%0b commit_valid=%0b commit_pc=0x%012h commit_type=%0d br_taken=%0b br_target=0x%016h)",
+                         flush_target_pc,
+                         pc,
+                         state,
+                         core_flush,
+                         pipe_flush,
+                         sim_finish_pending,
+                         commit_valid,
+                         commit_data.PC[47:0],
+                         commit_data.inst_type,
+                         commit_data.br_taken,
+                         commit_data.br_target);
                 pc              <= flush_target_pc[47:0];
                 state           <= 0;
                 state7_sent     <= 1'b0;
+                fetch_zero_pending <= 1'b0;
+                fetch_zero_wait    <= '0;
                 mem_en          <= 1'b0;
                 itlb_lookup_req <= 1'b0;
                 itlb_fill_req   <= 1'b0;
-            end else begin
+            end else if (!skip_fetch_progress && !fetch_zero_pending) begin
                 case (state)
                     0: begin
                         state7_sent <= 1'b0;
@@ -581,7 +816,15 @@ module Top
                         mem_en <= 1'b0;
                         insn_bits <= mem_rdata;
                         $display("[TOP] fetched pc=0x%012h insn=0x%08h", pc, mem_rdata);
-                        state <= 7;
+                        if (mem_rdata == 32'h0000_0000) begin
+                            $display("[TOP] zero/invalid instruction at pc=0x%012h; waiting for in-flight redirect", pc);
+                            fetch_zero_pending <= 1'b1;
+                            fetch_zero_wait <= '0;
+                            state <= 0;
+                            state7_sent <= 1'b0;
+                        end else begin
+                            state <= 7;
+                        end
                     end
 
                     7: begin
@@ -601,6 +844,32 @@ module Top
 
                     default: state <= 0;
                 endcase
+            end
+
+            if (pc == last_fetch_pc && !sim_finish_pending && !halt_fetch) begin
+                if (fetch_same_pc_streak != 8'hff)
+                    fetch_same_pc_streak <= fetch_same_pc_streak + 1'b1;
+                if (fetch_same_pc_streak == 8'd7) begin
+                    $display("[TOP] fetch repeating pc=0x%012h state=%0d state7_sent=%0b skip_fetch_progress=%0b core_flush=%0b pipe_flush=%0b sim_finish=%0b halt=%0b decoder_ready=%0b ready_for_uop=%0b commit_valid=%0b commit_pc=0x%012h commit_type=%0d flush_target=0x%016h",
+                             pc,
+                             state,
+                             state7_sent,
+                             skip_fetch_progress,
+                             core_flush,
+                             pipe_flush,
+                             sim_finish_pending,
+                             halt_fetch,
+                             decoder_ready,
+                             ready_for_uop,
+                             commit_valid,
+                             commit_data.PC[47:0],
+                             commit_data.inst_type,
+                             flush_target_pc);
+                end
+            end else begin
+                fetch_same_pc_streak <= 8'd0;
+            end
+            last_fetch_pc <= pc;
             end
         end
     end

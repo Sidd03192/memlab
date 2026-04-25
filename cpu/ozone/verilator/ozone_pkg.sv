@@ -99,6 +99,9 @@ typedef struct packed {
     logic [OPCODE_W-1:0]        op;
     logic [3:0]                 nzcv;
     logic                       updates_nzcv;
+    logic                       is_sysreg;
+    logic                       sysreg_read;
+    logic [15:0]                sysreg_id;
     logic [5:0]                 shift_amt;   // pre-shift Vk amount (0 = identity)
     logic [1:0]                 shift_type;  // 00=LSL, 01=LSR, 10=ASR
 } rs_entry_t;
@@ -191,6 +194,10 @@ typedef struct packed {
     logic                       br_taken;
     logic [63:0]                br_target;
     logic [63:0]                store_addr;
+    logic                       is_sysreg;
+    logic                       sysreg_read;
+    logic [15:0]                sysreg_id;
+    logic                       is_eret;
 } rob_entry_t;
 
 // -------------------------------------------------------
@@ -227,6 +234,9 @@ typedef struct packed {
     logic check_target;
     logic [5:0] shift_amt;   // RR-format shifted-register: amount to pre-shift Vk
     logic [1:0] shift_type;  // 00=LSL, 01=LSR, 10=ASR
+    logic sysreg_op;
+    logic sysreg_read;
+    logic [15:0] sysreg_id;
 } uop_t;
 
 endpackage

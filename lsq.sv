@@ -309,6 +309,8 @@ module lsq #(
                     for (int i = 0; i < LQ_ENTRIES; i++) begin
                         if (lq_state[i] == LQ_WAITING_ADDR
                             && lq_rob_waddr_id[i] == cdb_in.rob_tag) begin
+                            $display("[LSQ] load EA resolved lq=%0d rob=%0d vaddr=0x%012h",
+                                     i, cdb_in.rob_tag, cdb_in.value[VA_WIDTH-1:0]);
                             lq_vaddr[i] <= cdb_in.value[VA_WIDTH-1:0];
                             lq_state[i] <= LQ_WAITING_ISSUE;
                         end
@@ -321,6 +323,8 @@ module lsq #(
 
                             // EA arrives
                             if (sq_rob_id[i] == cdb_in.rob_tag) begin
+                                $display("[LSQ] store EA resolved sq=%0d rob=%0d vaddr=0x%012h",
+                                         i, cdb_in.rob_tag, cdb_in.value[VA_WIDTH-1:0]);
                                 sq_vaddr[i] <= cdb_in.value[VA_WIDTH-1:0];
                                 case (sq_state[i])
                                     SQ_UNRESOLVED:   sq_state[i] <= SQ_WAITING_DATA;
@@ -331,6 +335,8 @@ module lsq #(
 
                             // wdata arrives
                             if (sq_rob_wdata_id[i] == cdb_in.rob_tag) begin
+                                $display("[LSQ] store data resolved sq=%0d producer=%0d data=0x%016h",
+                                         i, cdb_in.rob_tag, cdb_in.value);
                                 sq_wdata[i] <= cdb_in.value;
                                 case (sq_state[i])
                                     SQ_UNRESOLVED:   sq_state[i] <= SQ_WAITING_ADDR;
@@ -347,6 +353,7 @@ module lsq #(
                 // -------------------------------------------------------------
                 if (valid_in) begin
                     if (is_load && !lq_full) begin
+                        $display("[LSQ] dispatch load rob=%0d -> lq=%0d", rob_entry_id, lq_tail);
                         lq_rob_id[lq_tail]      <= rob_entry_id;
                         lq_rob_waddr_id[lq_tail] <= rob_entry_id; // EA tag same as op tag at dispatch
                         lq_vaddr[lq_tail]        <= '0;
@@ -359,6 +366,9 @@ module lsq #(
                         lq_tail <= lq_tail + 1'b1;
 
                     end else if (!is_load && !sq_full) begin
+                        $display("[LSQ] dispatch store rob=%0d -> sq=%0d wtag=%0d wready=%0b wdata=0x%016h",
+                                 rob_entry_id, sq_tail, rob_wdata_entry_id,
+                                 rob_wdata_ready, rob_wdata);
                         sq_rob_id[sq_tail]       <= rob_entry_id;
                         sq_rob_wdata_id[sq_tail] <= rob_wdata_entry_id;
                         sq_cdb_sent[sq_tail]     <= 1'b0;
@@ -379,6 +389,8 @@ module lsq #(
                 // ROB COMMIT — move head store to SQ_COMMITTED
                 // -------------------------------------------------------------
                 if (commit_sq_head && sq_state[sq_head] == SQ_WAITING_ISSUE) begin
+                    $display("[LSQ] store commit granted sq_head=%0d rob=%0d vaddr=0x%012h data=0x%016h",
+                             sq_head, sq_rob_id[sq_head], sq_vaddr[sq_head], sq_wdata[sq_head]);
                     sq_state[sq_head] <= SQ_COMMITTED;
                 end
 
@@ -390,6 +402,7 @@ module lsq #(
                 for (int i = 0; i < SQ_ENTRIES; i++) begin
                     if (sq_state[i] == SQ_WAITING_ISSUE && !sq_cdb_sent[i]
                         && !cdb_out.valid) begin
+                        $display("[LSQ] store ready broadcast sq=%0d rob=%0d", i, sq_rob_id[i]);
                         cdb_out.valid       <= 1'b1;
                         cdb_out.rob_tag     <= sq_rob_id[i];
                         cdb_out.rob_wb_en   <= 1'b1;
@@ -419,6 +432,8 @@ module lsq #(
                     && !cdb_out.valid) begin
 
                     if (fwd_hit) begin
+                        $display("[LSQ] load forward lq=%0d rob=%0d data=0x%016h",
+                                 lq_found_entry, lq_rob_id[lq_found_entry], fwd_data);
                         lq_state[lq_found_entry] <= LQ_EMPTY;
 
                         cdb_out.valid        <= 1'b1;
@@ -438,6 +453,8 @@ module lsq #(
                             lq_head <= lq_head + 1'b1;
 
                     end else begin
+                        $display("[LSQ] load issue lq=%0d rob=%0d vaddr=0x%012h",
+                                 lq_found_entry, lq_rob_id[lq_found_entry], lq_vaddr[lq_found_entry]);
                         issue_vaddr   <= lq_vaddr[lq_found_entry];
                         issue_wdata   <= '0;
                         issue_is_load <= 1'b1;
@@ -451,6 +468,8 @@ module lsq #(
                 // STORE ISSUE (retire committed head store to memory)
                 // -------------------------------------------------------------
                 if (sq_found && !is_unresolved_load && l1_ready && tlb_ready) begin
+                    $display("[LSQ] store issue sq=%0d rob=%0d vaddr=0x%012h data=0x%016h",
+                             sq_head, sq_rob_id[sq_head], sq_vaddr[sq_head], sq_wdata[sq_head]);
                     issue_vaddr   <= sq_vaddr[sq_head];
                     issue_wdata   <= sq_wdata[sq_head];
                     issue_is_load <= 1'b0;
@@ -469,6 +488,8 @@ module lsq #(
                     for (int i = 0; i < LQ_ENTRIES; i++) begin
                         if (lq_state[i] == LQ_IN_FLIGHT
                             && lq_rob_id[i] == mem_resp_lq_id) begin
+                            $display("[LSQ] load return lq=%0d rob=%0d data=0x%016h",
+                                     i, lq_rob_id[i], mem_resp_data);
 
                             lq_state[i] <= LQ_EMPTY;
 

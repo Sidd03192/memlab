@@ -39,6 +39,8 @@ module l2_cache #(
 )(
     input  logic                    clk,
     input  logic                    rst_n,
+    input  logic                    flush_req,
+    output logic                    flush_done,
 
     // L1 -> L2: writeback
     input  logic                    l1_wb_valid,
@@ -77,6 +79,8 @@ module l2_cache #(
     localparam int TAG_SIZE    = PA_WIDTH - INDEX_BITS - OFFSET_BITS;   // 20
     localparam int LINE_W      = BLOCK_SIZE * 8;                        // 512
     localparam int WAY_BITS    = $clog2(L2_WAYS);                       //  2
+    localparam int FLUSH_SET_BITS = (L2_SETS > 1) ? $clog2(L2_SETS) : 1;
+    localparam int FLUSH_WAY_BITS = (L2_WAYS > 1) ? $clog2(L2_WAYS) : 1;
 
     // =========================================================================
     // PLRU — 3 bits per set (binary tree, 4-way)
@@ -174,6 +178,7 @@ module l2_cache #(
     logic [PA_WIDTH-1:0] mshr_paddr      [NUM_MSHRS];
     logic [LINE_W-1:0]   mshr_block      [NUM_MSHRS];
     logic                mshr_mem_issued [NUM_MSHRS];
+    logic                all_mshrs_idle;
 
     // =========================================================================
     // Pipeline registers
@@ -198,6 +203,10 @@ module l2_cache #(
     logic [PA_WIDTH-1:0]   data_rd_wb_paddr;
     logic [TAG_SIZE-1:0]   data_rd_new_tag;
     logic [LINE_W-1:0]     data_rd_new_line;
+    logic                  flush_active;
+    logic                  flush_scan_done;
+    logic [FLUSH_SET_BITS-1:0] flush_set;
+    logic [FLUSH_WAY_BITS-1:0] flush_way;
 
     // =========================================================================
     // Writeback FIFO
@@ -213,6 +222,13 @@ module l2_cache #(
     logic wb_empty, wb_full;
     assign wb_empty = (wb_count == '0);
     assign wb_full  = (wb_count == WB_DEPTH);
+
+    always_comb begin
+        all_mshrs_idle = 1'b1;
+        for (int i = 0; i < NUM_MSHRS; i++)
+            if (mshr_state[i] != MS_IDLE)
+                all_mshrs_idle = 1'b0;
+    end
 
     // =========================================================================
     // Address decode
@@ -376,6 +392,11 @@ module l2_cache #(
             wb_head               <= '0;
             wb_tail               <= '0;
             wb_count              <= '0;
+            flush_active          <= 1'b0;
+            flush_scan_done       <= 1'b0;
+            flush_set             <= '0;
+            flush_way             <= '0;
+            flush_done            <= 1'b0;
             for (int i = 0; i < L2_SETS; i++) begin
                 set_valids[i] <= '0;
                 set_dirty[i]  <= '0;
@@ -395,19 +416,43 @@ module l2_cache #(
 
             l1_wb_ack     <= 1'b0;
             l1_data_valid <= 1'b0;
+            flush_done    <= 1'b0;
             control_taken = 1'b0;
             do_wb_push    = 1'b0;
             do_wb_pop     = 1'b0;
+
+            if (!flush_req) begin
+                flush_active    <= 1'b0;
+                flush_scan_done <= 1'b0;
+                flush_set       <= '0;
+                flush_way       <= '0;
+            end else if (!flush_active) begin
+                flush_active    <= 1'b1;
+                flush_scan_done <= 1'b0;
+                flush_set       <= '0;
+                flush_way       <= '0;
+            end
 
             // ------------------------------------------------------------------
             // Memory response → MSHR
             // ------------------------------------------------------------------
             if (mem_resp_valid) begin
+                logic resp_matched;
+                resp_matched = 1'b0;
+                $display("[L2] mem resp seen paddr=0x%08h", mem_resp_paddr);
                 for (int i = 0; i < NUM_MSHRS; i++) begin
-                    if (mshr_state[i] == MS_WAIT_MEM && mshr_paddr[i] == mem_resp_paddr) begin
+                    $display("[L2]   mshr=%0d state=%0d paddr=0x%08h issued=%0b",
+                             i, mshr_state[i], mshr_paddr[i], mshr_mem_issued[i]);
+                    if (mshr_state[i] != MS_IDLE && mshr_paddr[i] == mem_resp_paddr) begin
+                        $display("[L2] mem resp matched mshr=%0d paddr=0x%08h",
+                                 i, mem_resp_paddr);
                         mshr_block[i] <= mem_resp_rdata;
                         mshr_state[i] <= MS_RESOLVED;
+                        resp_matched   = 1'b1;
                     end
+                end
+                if (!resp_matched) begin
+                    $display("[L2] mem resp had no matching WAIT_MEM entry");
                 end
             end
 
@@ -421,7 +466,54 @@ module l2_cache #(
             //   5) process one req_pending request
             //   6) latch one new L1 request
             // ------------------------------------------------------------------
-            if (data_rd_pending) begin
+            if (flush_req && !data_rd_pending && !req_pending_valid
+                    && !install_pending_valid && all_mshrs_idle) begin
+                if (flush_active && !flush_scan_done) begin
+                    if (!set_valids[flush_set][flush_way]) begin
+                        if (flush_way == FLUSH_WAY_BITS'(L2_WAYS - 1)) begin
+                            flush_way <= '0;
+                            if (flush_set == FLUSH_SET_BITS'(L2_SETS - 1))
+                                flush_scan_done <= 1'b1;
+                            else
+                                flush_set <= flush_set + 1'b1;
+                        end else begin
+                            flush_way <= flush_way + 1'b1;
+                        end
+                    end else if (!set_dirty[flush_set][flush_way]) begin
+                        set_valids[flush_set][flush_way] <= 1'b0;
+                        set_dirty[flush_set][flush_way]  <= 1'b0;
+                        if (flush_way == FLUSH_WAY_BITS'(L2_WAYS - 1)) begin
+                            flush_way <= '0;
+                            if (flush_set == FLUSH_SET_BITS'(L2_SETS - 1))
+                                flush_scan_done <= 1'b1;
+                            else
+                                flush_set <= flush_set + 1'b1;
+                        end else begin
+                            flush_way <= flush_way + 1'b1;
+                        end
+                    end else if (!(wb_full && !do_wb_pop)) begin
+                        wb_paddr_q[wb_tail] <= {tags[flush_set][flush_way],
+                                               flush_set, {OFFSET_BITS{1'b0}}};
+                        wb_data_q[wb_tail]  <= set_contents[flush_way][flush_set];
+                        wb_tail             <= wb_tail + 1'b1;
+                        do_wb_push          = 1'b1;
+                        set_valids[flush_set][flush_way] <= 1'b0;
+                        set_dirty[flush_set][flush_way]  <= 1'b0;
+                        $display("[L2] flush wb set=%0d way=%0d paddr=0x%08h",
+                                 flush_set, flush_way,
+                                 {tags[flush_set][flush_way], flush_set, {OFFSET_BITS{1'b0}}});
+                        if (flush_way == FLUSH_WAY_BITS'(L2_WAYS - 1)) begin
+                            flush_way <= '0;
+                            if (flush_set == FLUSH_SET_BITS'(L2_SETS - 1))
+                                flush_scan_done <= 1'b1;
+                            else
+                                flush_set <= flush_set + 1'b1;
+                        end else begin
+                            flush_way <= flush_way + 1'b1;
+                        end
+                    end
+                end
+            end else if (data_rd_pending) begin
                 case (data_rd_kind)
 
                     DATA_RD_REQ_HIT: begin
@@ -595,11 +687,14 @@ module l2_cache #(
                             end
                         end
                         if (!mshr_dup && !mshr_full_l2) begin
+                            $display("[L2] allocate mshr=%0d paddr=0x%08h",
+                                     mshr_free_idx, req_pending_paddr);
                             mshr_state[mshr_free_idx]      <= MS_UNRESOLVED;
                             mshr_paddr[mshr_free_idx]      <= req_pending_paddr;
                             mshr_mem_issued[mshr_free_idx] <= 1'b0;
                             req_pending_valid              <= 1'b0;
                         end else if (mshr_dup) begin
+                            $display("[L2] duplicate req paddr=0x%08h", req_pending_paddr);
                             req_pending_valid <= 1'b0;
                         end
                     end
@@ -625,7 +720,14 @@ module l2_cache #(
                     mshr_issued_one = 1'b0;
                     for (int i = 0; i < NUM_MSHRS; i++) begin
                         if (mshr_state[i] == MS_UNRESOLVED && !mshr_mem_issued[i]
-                                && !mshr_issued_one) begin
+                                && !mshr_issued_one
+                                // In the Verilator DRAM shim, a fill can arrive in the
+                                // same cycle the miss would otherwise transition to
+                                // WAIT_MEM. Let the response win instead of overwriting
+                                // the MSHR back to waiting.
+                                && !(mem_resp_valid && mshr_paddr[i] == mem_resp_paddr)) begin
+                            $display("[L2] mem req issued mshr=%0d paddr=0x%08h",
+                                     i, mshr_paddr[i]);
                             mshr_state[i]      <= MS_WAIT_MEM;
                             mshr_mem_issued[i] <= 1'b1;
                             mshr_issued_one     = 1'b1;
@@ -635,6 +737,12 @@ module l2_cache #(
             end
             if (do_wb_push && !do_wb_pop)      wb_count <= wb_count + 1'b1;
             else if (!do_wb_push && do_wb_pop) wb_count <= wb_count - 1'b1;
+
+            if (flush_req && flush_active && flush_scan_done && wb_empty
+                    && !data_rd_pending && !req_pending_valid
+                    && !install_pending_valid && all_mshrs_idle) begin
+                flush_done <= 1'b1;
+            end
         end
     end
 

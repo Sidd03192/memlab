@@ -49,6 +49,7 @@ module ozone_dispatch
     input  logic [63:0] rob_src1_val,
     input  logic        rob_src2_ready,
     input  logic [63:0] rob_src2_val,
+    input  logic [63:0] current_sp_value,
 
     // ─── ROB alloc ────────────────────────────────────────────────────────
     output logic        rob_alloc_valid,
@@ -154,6 +155,9 @@ always_comb begin
         // B/BL: Vj = PC so adder computes PC + offset
         Vj = {16'b0, cur.pc};
         Qj = 6'b0;
+    end else if (cur.b == 6'd31) begin
+        Vj = current_sp_value;
+        Qj = 6'b0;
     end else if (cur.b == 6'd32) begin
         // XZR or no source — always zero, no dependency
         Vj = 64'b0;
@@ -187,6 +191,9 @@ always_comb begin
         // Second operand is an immediate baked into uop.imm_bits
         Vk = cur.imm_bits;
         Qk = 6'b0;
+    end else if (cur.c == 6'd31) begin
+        Vk = current_sp_value;
+        Qk = 6'b0;
     end else if (cur.c == 6'd32) begin
         Vk = 64'b0;
         Qk = 6'b0;
@@ -211,7 +218,10 @@ logic [5:0]  Qdata;
 
 always_comb begin
     if (cur.uop_type == UOP_WR) begin
-        if (cur.a == 6'd32) begin
+        if (cur.a == 6'd31) begin
+            Vdata = current_sp_value;
+            Qdata = 6'b0;
+        end else if (cur.a == 6'd32) begin
             Vdata = 64'b0;
             Qdata = 6'b0;
         end else if (!src2_st.busy) begin
@@ -315,10 +325,14 @@ always_comb begin
                                   (cur.fp_bit)             ? DEST_FPR  : DEST_GPR;
     rob_alloc_data.alloc_has_dest = (cur.a != 6'd32) && (cur.uop_type != UOP_WR);
     rob_alloc_data.update_nzcv = cur.set_flags;
+    rob_alloc_data.is_sysreg   = cur.sysreg_op;
+    rob_alloc_data.sysreg_read = cur.sysreg_read;
+    rob_alloc_data.sysreg_id   = cur.sysreg_id;
+    rob_alloc_data.is_eret     = (cur.uop_type == UOP_ERET);
     rob_alloc_data.inst_type   =
         (cur.uop_type == UOP_RD)   ? ROB_TYPE_LOAD  :
         (cur.uop_type == UOP_WR)   ? ROB_TYPE_STORE :
-        cur.check_target            ? ROB_TYPE_BRANCH :
+        ((cur.check_target) || (cur.uop_type == UOP_ERET)) ? ROB_TYPE_BRANCH :
                                       ROB_TYPE_ALU;
     // ERET has no FU to mark it done; mark ready immediately so the ROB can
     // commit it and (eventually) trigger the flush path.
@@ -362,6 +376,9 @@ always_comb begin
     logic_alloc_entry.Qk           = Qk;
     logic_alloc_entry.op           = 6'(logic_op);
     logic_alloc_entry.updates_nzcv = cur.set_flags;
+    logic_alloc_entry.is_sysreg    = cur.sysreg_op;
+    logic_alloc_entry.sysreg_read  = cur.sysreg_read;
+    logic_alloc_entry.sysreg_id    = cur.sysreg_id;
     logic_alloc_entry.shift_amt    = cur.shift_amt;
     logic_alloc_entry.shift_type   = cur.shift_type;
 end
@@ -464,6 +481,12 @@ always_ff @(posedge clk or negedge rst_n) begin
         state        <= DS_IDLE;
         pending_uop1 <= '0;
     end else begin
+        if (do_dispatch && (cur.uop_type == UOP_RD || cur.uop_type == UOP_WR || cur.uop_type == UOP_AGU)) begin
+            $display("[DISPATCH] pc=0x%012h uop=%0d rob=%0d load=%0b store=%0b Vj=0x%016h Vk=0x%016h Qj=%0d Qk=%0d wdata=0x%016h wready=%0b",
+                     cur.pc, cur.uop_type, rob_alloc_idx,
+                     cur.uop_type == UOP_RD, cur.uop_type == UOP_WR,
+                     Vj, Vk, Qj, Qk, Vdata, (cur.uop_type == UOP_WR) && (Qdata == 6'b0));
+        end
         case (state)
             DS_IDLE: begin
                 if (uop_valid && !stall && has_uop1) begin

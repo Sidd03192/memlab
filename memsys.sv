@@ -39,6 +39,8 @@ module memory_subsystem #(
     parameter L2_WAYS       = 4,
     parameter L2_MSHRS      = 4,
     parameter USE_AVALON_MEM    = 1'b0,
+    parameter logic [PA_WIDTH-1:0] TLB_PAGE_WALK_BASE = '0,
+    parameter bit ENABLE_TLB_PAGE_WALK = 1'b0,
     // When 1: skip TLB; use VA[PA_WIDTH-1:0] directly as PA (identity mapping).
     // Safe for Verilator simulation with flat physical memory.
     parameter USE_IDENTITY_TLB  = 1'b0
@@ -69,6 +71,9 @@ module memory_subsystem #(
     // FROM ROB — control
     input  logic                     flush,                // squash entire LSQ
     input  logic                     commit_sq_head,       // ROB commits head store
+    input  logic                     translate_en_i,       // 1 = use dTLB/PTW, 0 = EL1 identity map
+    input  logic                     cache_flush_req,      // drain dirty cache state to memory
+    output logic                     cache_flush_done,
 
     // TO ROB
     output logic                     lq_full,
@@ -92,6 +97,22 @@ module memory_subsystem #(
     input  logic                     mem_resp_valid,
     input  logic [PA_WIDTH-1:0]      mem_resp_paddr,
     input  logic [BLOCK_SIZE*8-1:0]  mem_resp_rdata,
+
+    // -------------------------------------------------------------------------
+    // TLB PAGE WALK INTERFACE (simulation-only)
+    // -------------------------------------------------------------------------
+    input  logic [PA_WIDTH-1:0]      tlb_page_walk_base_i,
+    output logic                     ptw_req_valid,
+    output logic [PA_WIDTH-1:0]      ptw_req_addr,
+    input  logic                     ptw_req_ready,
+    input  logic                     ptw_resp_valid,
+    input  logic [63:0]              ptw_resp_data,
+
+    // Simulation-only committed-store mirror into sim_main DRAM. This keeps
+    // direct PTW reads coherent with stores that are still resident in cache.
+    output logic                     sim_store_valid,
+    output logic [PA_WIDTH-1:0]      sim_store_paddr,
+    output logic [DATA_WIDTH-1:0]    sim_store_data,
 
     // -------------------------------------------------------------------------
     // SDRAM / AVALON PORTS
@@ -158,6 +179,7 @@ module memory_subsystem #(
     logic [DATA_WIDTH-1:0]      issue_buf_wdata;
     logic                       issue_buf_is_load;
     logic [ROB_IDX_WIDTH-1:0]   issue_buf_lq_id;   // echoed to L1 and back to LSQ
+    logic [7:0]                 issue_block_streak;
 
     wire issue_buf_empty    = !issue_buf_valid;
     wire issue_buf_is_write = !issue_buf_is_load;
@@ -171,6 +193,44 @@ module memory_subsystem #(
     logic tlb_ready;
     logic tlb_valid;
     logic [PA_WIDTH-1:0] tlb_result_paddr;
+    logic tlb_real_ready;
+    logic tlb_real_valid;
+    logic [PA_WIDTH-1:0] tlb_real_result_paddr;
+    logic ptw_req_valid_real;
+    logic [PA_WIDTH-1:0] ptw_req_addr_real;
+    logic [PA_WIDTH-1:0] tlb_page_walk_base;
+    logic tlb_bypass_now;
+
+    always_comb begin
+        if ((^tlb_page_walk_base_i) === 1'bx)
+            tlb_page_walk_base = TLB_PAGE_WALK_BASE;
+        else
+            tlb_page_walk_base = tlb_page_walk_base_i;
+    end
+
+    assign tlb_bypass_now   = USE_IDENTITY_TLB || !translate_en_i;
+    assign tlb_ready        = tlb_bypass_now ? 1'b1 : tlb_real_ready;
+    assign tlb_valid        = tlb_bypass_now ? launch_issue_now : tlb_real_valid;
+    assign tlb_result_paddr = tlb_bypass_now ? tlb_vaddr_mux[PA_WIDTH-1:0]
+                                             : tlb_real_result_paddr;
+    assign ptw_req_valid    = tlb_bypass_now ? 1'b0 : ptw_req_valid_real;
+    assign ptw_req_addr     = tlb_bypass_now ? '0 : ptw_req_addr_real;
+
+    always_ff @(posedge clk) begin
+        if (tlb_start) begin
+            $display("[MEMSYS] tlb start fill=%0b vaddr=0x%012h base=0x%08h",
+                     is_tlb_fill_now, tlb_vaddr_mux, tlb_page_walk_base);
+        end
+        if (ptw_req_valid && ptw_req_ready) begin
+            $display("[MEMSYS] ptw req addr=0x%08h", ptw_req_addr);
+        end
+        if (ptw_resp_valid) begin
+            $display("[MEMSYS] ptw resp data=0x%016h", ptw_resp_data);
+        end
+        if (tlb_valid) begin
+            $display("[MEMSYS] tlb result paddr=0x%08h", tlb_result_paddr);
+        end
+    end
 
     // =========================================================================
     // L1 STALL / LAUNCH CONTROL
@@ -179,10 +239,10 @@ module memory_subsystem #(
 
     // Launch when buffer has an entry, TLB is ready, L1 is free, and no
     // concurrent TLB fill is colliding on the TLB port this cycle.
-    wire launch_issue_now = issue_buf_valid && !is_tlb_fill_now
+    wire launch_issue_now = issue_buf_valid && !cache_flush_req && !is_tlb_fill_now
                             && !l1_busy_to_lsq && tlb_ready;
 
-    wire tlb_start        = is_tlb_fill_now || launch_issue_now;
+    wire tlb_start        = is_tlb_fill_now || (launch_issue_now && !tlb_bypass_now);
 
     // TLB fill uses trace_vaddr; normal lookup uses the buffered issue vaddr
     wire [VA_WIDTH-1:0] tlb_vaddr_mux = is_tlb_fill_now ? trace_vaddr
@@ -211,6 +271,9 @@ module memory_subsystem #(
     logic                       l2_l1_data_valid;
     logic [PA_WIDTH-1:0]        l2_l1_data_paddr;
     logic [BLOCK_SIZE*8-1:0]    l2_l1_data;
+    logic                       l1_flush_done;
+    logic                       l2_flush_done;
+    logic                       l2_flush_req;
 
     // =========================================================================
     // LSQ INSTANTIATION
@@ -273,13 +336,53 @@ module memory_subsystem #(
             issue_buf_wdata   <= '0;
             issue_buf_is_load <= 1'b0;
             issue_buf_lq_id   <= '0;
+            issue_block_streak <= '0;
+        end else if (flush) begin
+            issue_buf_valid   <= 1'b0;
+            issue_buf_vaddr   <= '0;
+            issue_buf_wdata   <= '0;
+            issue_buf_is_load <= 1'b0;
+            issue_buf_lq_id   <= '0;
+            issue_block_streak <= '0;
         end else begin
+            if (issue_buf_valid && !launch_issue_now) begin
+                issue_block_streak <= issue_block_streak + 1'b1;
+                if (issue_block_streak == 8'd32 || issue_block_streak == 8'd128) begin
+                    $display("[MEMSYS] issue blocked streak=%0d load=%0b vaddr=0x%012h translate_en=%0b bypass=%0b tlb_ready=%0b tlb_valid=%0b tlb_real_ready=%0b tlb_real_valid=%0b l1_busy=%0b cache_flush=%0b is_tlb_fill=%0b",
+                             issue_block_streak,
+                             issue_buf_is_load,
+                             issue_buf_vaddr,
+                             translate_en_i,
+                             tlb_bypass_now,
+                             tlb_ready,
+                             tlb_valid,
+                             tlb_real_ready,
+                             tlb_real_valid,
+                             l1_busy_to_lsq,
+                             cache_flush_req,
+                             is_tlb_fill_now);
+                end
+            end else begin
+                issue_block_streak <= '0;
+            end
+
             // Clear when the buffered request is launched to L1/TLB
-            if (launch_issue_now)
+            if (launch_issue_now) begin
+                $display("[MEMSYS] launch issue load=%0b vaddr=0x%012h paddr=0x%08h translate_en=%0b bypass=%0b wdata=0x%016h lq_id=%0d",
+                         issue_buf_is_load,
+                         issue_buf_vaddr,
+                         tlb_result_paddr,
+                         translate_en_i,
+                         tlb_bypass_now,
+                         issue_buf_wdata,
+                         issue_buf_lq_id);
                 issue_buf_valid <= 1'b0;
+            end
 
             // Load from LSQ (LSQ only fires when buffer is empty, so no collision)
             if (lsq_valid_out) begin
+                $display("[MEMSYS] buffer issue load=%0b vaddr=0x%012h wdata=0x%016h lq_id=%0d",
+                         lsq_issue_is_load, lsq_issue_vaddr, lsq_issue_wdata, lsq_issue_lq_id);
                 issue_buf_valid   <= 1'b1;
                 issue_buf_vaddr   <= lsq_issue_vaddr;
                 issue_buf_wdata   <= lsq_issue_wdata;
@@ -289,29 +392,33 @@ module memory_subsystem #(
         end
     end
 
+    assign l2_flush_req     = cache_flush_req && l1_flush_done;
+    assign cache_flush_done = cache_flush_req && l1_flush_done && l2_flush_done;
+
     // =========================================================================
     // TLB INSTANTIATION
     // =========================================================================
-    generate
-        if (USE_IDENTITY_TLB) begin : gen_tlb_bypass
-            // Identity mapping: VA[PA_WIDTH-1:0] == PA, always hits, 0-cycle latency.
-            assign tlb_ready        = 1'b1;
-            assign tlb_valid        = tlb_start;
-            assign tlb_result_paddr = tlb_vaddr_mux[PA_WIDTH-1:0];
-        end else begin : gen_tlb_real
-            tlb u_tlb (
-                .clk         (clk),
-                .rst_n       (rst_n),
-                .start       (tlb_start),
-                .is_tlb_fill (is_tlb_fill_now),
-                .vaddr       (tlb_vaddr_mux),
-                .paddr       (trace_tlb_paddr),
-                .ready       (tlb_ready),
-                .valid       (tlb_valid),
-                .result_paddr(tlb_result_paddr)
-            );
-        end
-    endgenerate
+    tlb #(
+        .VA_WIDTH       (VA_WIDTH),
+        .PA_WIDTH       (PA_WIDTH),
+        .ENABLE_PAGE_WALK(ENABLE_TLB_PAGE_WALK)
+    ) u_tlb (
+        .clk         (clk),
+        .rst_n       (rst_n),
+        .start       (tlb_start),
+        .is_tlb_fill (is_tlb_fill_now),
+        .vaddr       (tlb_vaddr_mux),
+        .paddr       (trace_tlb_paddr),
+        .page_walk_base_i(tlb_page_walk_base),
+        .ptw_req_valid(ptw_req_valid_real),
+        .ptw_req_addr (ptw_req_addr_real),
+        .ptw_req_ready(ptw_req_ready),
+        .ptw_resp_valid(ptw_resp_valid),
+        .ptw_resp_data(ptw_resp_data),
+        .ready       (tlb_real_ready),
+        .valid       (tlb_real_valid),
+        .result_paddr(tlb_real_result_paddr)
+    );
 
     // =========================================================================
     // L1 CACHE INSTANTIATION
@@ -322,6 +429,8 @@ module memory_subsystem #(
     ) u_l1 (
         .clk         (clk),
         .rst_n       (rst_n),
+        .flush_req   (cache_flush_req),
+        .flush_done  (l1_flush_done),
 
         // From TLB
         .start_tag   (tlb_valid),
@@ -352,7 +461,10 @@ module memory_subsystem #(
         .l2_req_paddr (l1_l2_req_paddr),
         .l2_data_valid(l2_l1_data_valid),
         .l2_data_paddr(l2_l1_data_paddr),
-        .l2_data      (l2_l1_data)
+        .l2_data      (l2_l1_data),
+        .sim_store_valid(sim_store_valid),
+        .sim_store_paddr(sim_store_paddr),
+        .sim_store_data (sim_store_data)
     );
 
     // =========================================================================
@@ -382,6 +494,8 @@ module memory_subsystem #(
     ) u_l2 (
         .clk            (clk),
         .rst_n          (rst_n),
+        .flush_req      (l2_flush_req),
+        .flush_done     (l2_flush_done),
         .l1_wb_valid    (l1_l2_wb_valid),
         .l1_wb_paddr    (l1_l2_wb_paddr),
         .l1_wb_data     (l1_l2_wb_data),

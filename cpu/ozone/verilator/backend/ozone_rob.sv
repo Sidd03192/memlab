@@ -25,6 +25,7 @@ module ozone_rob
     output logic [ROB_IDX_BITS-1:0]     alloc_rob_idx,      // allocated ROB index returned to dispatch
 
     output logic                        rob_full,           // stall dispatch if full
+    output logic                        rob_empty,          // no in-flight ROB entries
     output logic [ROB_IDX_BITS-1:0]     rob_head,           // current head for CDB age arbitration
 
     // cdb broadcast. 
@@ -76,6 +77,7 @@ module ozone_rob
 
     // Full/empty detection
     assign rob_full = (count == ROB_DEPTH);
+    assign rob_empty = (count == '0);
     assign rob_head = head;
 
    // dispatch reads source ops
@@ -191,12 +193,18 @@ module ozone_rob
             // Commit oldest ready head entry first.
             // (dispatch will still be able to read this entry because its comb )
             if (head_can_commit) begin
+                $display("[ROB] commit head=%0d type=%0d ready=%0b value=0x%016h store_addr=0x%016h br_target=0x%016h",
+                         head, head_entry.inst_type, head_entry.ready, head_entry.value,
+                         head_entry.store_addr, head_entry.br_target);
                 head <= (head == 6'd63) ? 6'd1 : head + 1'b1;
             end
 
             // cdb writeback update (after commit, before alloc)
             if (cdb_in.valid) begin
                 if (cdb_in.rob_wb_en) begin
+                    $display("[ROB] cdb wb rob=%0d value=0x%016h exc=%0b br=%0b taken=%0b target=0x%016h",
+                             cdb_in.rob_tag, cdb_in.value, cdb_in.exc,
+                             cdb_in.br_valid, cdb_in.br_taken, cdb_in.br_target);
                     rob_entries[cdb_in.rob_tag].ready       <= 1'b1;
                     rob_entries[cdb_in.rob_tag].value       <= cdb_in.value;
                     rob_entries[cdb_in.rob_tag].update_nzcv <= cdb_in.update_nzcv;
@@ -212,6 +220,9 @@ module ozone_rob
 
             // dispatch writes after CDB
             if (do_alloc) begin
+                $display("[ROB] alloc tail=%0d type=%0d pc=0x%016h dest=%0d has_dest=%0b",
+                         tail, alloc_data.inst_type, alloc_data.PC,
+                         alloc_data.dest_reg, alloc_has_dest);
                 rob_entries[tail] <= alloc_data;
                 rob_entries[tail].valid <= 1'b1;
                 rob_entries[tail].alloc_has_dest <= alloc_has_dest;

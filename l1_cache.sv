@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
 
+import ooo_pkg::*;
+
 module l1_cache #(
     parameter L1_CAPACITY   = 512,
     parameter L1_WAYS       = 2,
@@ -11,6 +13,8 @@ module l1_cache #(
 )(
     input  logic                        clk,
     input  logic                        rst_n,
+    input  logic                        flush_req,
+    output logic                        flush_done,
 
     // FROM TLB
     input  logic                        start_tag,
@@ -44,7 +48,13 @@ module l1_cache #(
     output logic [PA_WIDTH-1:0]         l2_req_paddr,
     input  logic                        l2_data_valid,
     input  logic [PA_WIDTH-1:0]         l2_data_paddr,
-    input  logic [BLOCK_SIZE*8-1:0]     l2_data
+    input  logic [BLOCK_SIZE*8-1:0]     l2_data,
+
+    // Simulation-only mirror: stores are committed before reaching L1, so this
+    // keeps sim_main DRAM coherent with cache-resident data for PTW/final dumps.
+    output logic                        sim_store_valid,
+    output logic [PA_WIDTH-1:0]         sim_store_paddr,
+    output logic [DATA_WIDTH-1:0]       sim_store_data
 );
 
     localparam int L1_SETS        = L1_CAPACITY / (BLOCK_SIZE * L1_WAYS);
@@ -53,6 +63,8 @@ module l1_cache #(
     localparam int WORD_BITS      = $clog2(BLOCK_SIZE * 8 / DATA_WIDTH);
     localparam int WORDS_PER_BLOCK = BLOCK_SIZE * 8 / DATA_WIDTH;
     localparam int TAG_SIZE       = PA_WIDTH - INDEX_BITS - OFFSET_BITS;
+    localparam int FLUSH_SET_BITS = (L1_SETS > 1) ? $clog2(L1_SETS) : 1;
+    localparam int FLUSH_WAY_BITS = (L1_WAYS > 1) ? $clog2(L1_WAYS) : 1;
 
     // =========================================================================
     // CACHE ARRAYS
@@ -72,6 +84,13 @@ module l1_cache #(
     logic [DATA_WIDTH-1:0]   curr_wdata;
     logic [WORD_BITS-1:0]    curr_word_offset;
     logic [ROB_IDX_WIDTH-1:0] curr_lq_id;   // registered lq_id for the in-flight request
+    logic                    pending_tag_valid;
+    logic [PA_WIDTH-1:0]     pending_tlb_paddr;
+    logic [7:0]              tag_wait_streak;
+    logic                    flush_active;
+    logic                    flush_scan_done;
+    logic [FLUSH_SET_BITS-1:0] flush_set;
+    logic [FLUSH_WAY_BITS-1:0] flush_way;
 
     logic                    mshr_dup;
     logic [$clog2(NUM_MSHRS)-1:0] mshr_dup_idx;
@@ -88,6 +107,7 @@ module l1_cache #(
     logic [BLOCK_SIZE*8-1:0]  mshr_block      [NUM_MSHRS];
     logic [WORDS_PER_BLOCK-1:0] mshr_store_mask [NUM_MSHRS];
     logic [BLOCK_SIZE*8-1:0]  mshr_store_data [NUM_MSHRS];
+    logic [WORD_BITS-1:0]      mshr_word_offset [NUM_MSHRS];
     // lq_id for the load that caused each miss — needed to send the response
     // back to the LSQ when the MSHR finally installs.
     logic [ROB_IDX_WIDTH-1:0] mshr_lq_id      [NUM_MSHRS];
@@ -95,6 +115,7 @@ module l1_cache #(
 
     logic                         mshr_full;
     logic [$clog2(NUM_MSHRS)-1:0] mshr_free_idx;
+    logic                         all_mshrs_idle;
 
     localparam [1:0] MS_IDLE       = 2'b00;
     localparam [1:0] MS_UNRESOLVED = 2'b01;
@@ -155,16 +176,25 @@ module l1_cache #(
             end
     end
 
+    always_comb begin
+        all_mshrs_idle = 1'b1;
+        for (int i = 0; i < NUM_MSHRS; i++)
+            if (mshr_state[i] != MS_IDLE)
+                all_mshrs_idle = 1'b0;
+    end
+
     // =========================================================================
     // TAG CHECK — combinational
     // =========================================================================
+    logic [PA_WIDTH-1:0]  tag_paddr_mux;
     logic [TAG_SIZE-1:0]  incoming_tag;
     logic [PA_WIDTH-1:0]  incoming_line_paddr;
     logic                 hit;
     logic [$clog2(L1_WAYS)-1:0] hit_way;
 
-    assign incoming_tag        = tlb_paddr[PA_WIDTH-1 -: TAG_SIZE];
-    assign incoming_line_paddr = {tlb_paddr[PA_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+    assign tag_paddr_mux       = pending_tag_valid ? pending_tlb_paddr : tlb_paddr;
+    assign incoming_tag        = tag_paddr_mux[PA_WIDTH-1 -: TAG_SIZE];
+    assign incoming_line_paddr = {tag_paddr_mux[PA_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
 
     always_comb begin
         hit     = 1'b0;
@@ -187,9 +217,20 @@ module l1_cache #(
             curr_wdata       <= '0;
             curr_word_offset <= '0;
             curr_lq_id       <= '0;
+            pending_tag_valid <= 1'b0;
+            pending_tlb_paddr <= '0;
+            tag_wait_streak  <= '0;
+            flush_active     <= 1'b0;
+            flush_scan_done  <= 1'b0;
+            flush_set        <= '0;
+            flush_way        <= '0;
+            flush_done       <= 1'b0;
             lsq_resp_valid   <= 1'b0;
             lsq_resp_lq_id   <= '0;
             lsq_resp_data    <= '0;
+            sim_store_valid  <= 1'b0;
+            sim_store_paddr  <= '0;
+            sim_store_data   <= '0;
             for (int i = 0; i < L1_SETS; i++) begin
                 set_valids[i] <= '0;
                 set_dirty[i]  <= '0;
@@ -202,6 +243,7 @@ module l1_cache #(
                 mshr_block[i]      <= '0;
                 mshr_store_mask[i] <= '0;
                 mshr_store_data[i] <= '0;
+                mshr_word_offset[i] <= '0;
                 mshr_lq_id[i]      <= '0;
                 mshr_is_load[i]    <= 1'b0;
             end
@@ -219,16 +261,83 @@ module l1_cache #(
             lsq_resp_valid <= 1'b0;
             lsq_resp_lq_id <= '0;
             lsq_resp_data  <= '0;
+            sim_store_valid <= 1'b0;
+            sim_store_paddr <= '0;
+            sim_store_data  <= '0;
+            flush_done     <= 1'b0;
 
             wb_pop        = l2_wb_ack && !wb_empty;
             wb_push       = 1'b0;
             wb_push_paddr = '0;
             wb_push_data  = '0;
 
+            if (!flush_req) begin
+                flush_active    <= 1'b0;
+                flush_scan_done <= 1'b0;
+                flush_set       <= '0;
+                flush_way       <= '0;
+            end else if (!flush_active) begin
+                flush_active    <= 1'b1;
+                flush_scan_done <= 1'b0;
+                flush_set       <= '0;
+                flush_way       <= '0;
+            end
+
             // -----------------------------------------------------------------
             // STATE MACHINE
             // -----------------------------------------------------------------
-            case (state)
+            if (flush_req) begin
+                pending_tag_valid <= 1'b0;
+                state             <= 3'd0;
+
+                if (flush_active && !flush_scan_done && all_mshrs_idle) begin
+                    if (!set_valids[flush_set][flush_way]) begin
+                        if (flush_way == FLUSH_WAY_BITS'(L1_WAYS - 1)) begin
+                            flush_way <= '0;
+                            if (flush_set == FLUSH_SET_BITS'(L1_SETS - 1))
+                                flush_scan_done <= 1'b1;
+                            else
+                                flush_set <= flush_set + 1'b1;
+                        end else begin
+                            flush_way <= flush_way + 1'b1;
+                        end
+                    end else if (!set_dirty[flush_set][flush_way]) begin
+                        set_valids[flush_set][flush_way] <= 1'b0;
+                        set_dirty[flush_set][flush_way]  <= 1'b0;
+                        if (flush_way == FLUSH_WAY_BITS'(L1_WAYS - 1)) begin
+                            flush_way <= '0;
+                            if (flush_set == FLUSH_SET_BITS'(L1_SETS - 1))
+                                flush_scan_done <= 1'b1;
+                            else
+                                flush_set <= flush_set + 1'b1;
+                        end else begin
+                            flush_way <= flush_way + 1'b1;
+                        end
+                    end else if (!(wb_full && !wb_pop)) begin
+                        wb_push       = 1'b1;
+                        wb_push_paddr = {tags[flush_set][flush_way], flush_set,
+                                         {OFFSET_BITS{1'b0}}};
+                        wb_push_data  = set_contents[flush_set][flush_way];
+                        set_valids[flush_set][flush_way] <= 1'b0;
+                        set_dirty[flush_set][flush_way]  <= 1'b0;
+                        $display("[L1] flush wb set=%0d way=%0d paddr=0x%08h",
+                                 flush_set, flush_way, wb_push_paddr);
+                        if (flush_way == FLUSH_WAY_BITS'(L1_WAYS - 1)) begin
+                            flush_way <= '0;
+                            if (flush_set == FLUSH_SET_BITS'(L1_SETS - 1))
+                                flush_scan_done <= 1'b1;
+                            else
+                                flush_set <= flush_set + 1'b1;
+                        end else begin
+                            flush_way <= flush_way + 1'b1;
+                        end
+                    end
+                end
+
+                if (flush_active && flush_scan_done && wb_empty && all_mshrs_idle) begin
+                    flush_done <= 1'b1;
+                end
+            end else case (state)
 
                 // -------------------------------------------------------------
                 3'd0: begin  // IDLE
@@ -276,10 +385,15 @@ module l1_cache #(
                                     // Only send a response for load misses.
                                     // The read word is extracted from the merged block.
                                     if (mshr_is_load[i]) begin
+                                        $display("[L1] install load fill mshr=%0d lq=%0d word=%0d data=0x%016h",
+                                                 i,
+                                                 mshr_lq_id[i],
+                                                 mshr_word_offset[i],
+                                                 temp_install[mshr_word_offset[i]*DATA_WIDTH +: DATA_WIDTH]);
                                         lsq_resp_valid <= 1'b1;
                                         lsq_resp_lq_id <= mshr_lq_id[i];
                                         lsq_resp_data  <=
-                                            temp_install[curr_word_offset*DATA_WIDTH +: DATA_WIDTH];
+                                            temp_install[mshr_word_offset[i]*DATA_WIDTH +: DATA_WIDTH];
                                     end
                                 end
 
@@ -290,6 +404,7 @@ module l1_cache #(
                                 mshr_state[i]                          <= MS_IDLE;
                                 mshr_store_mask[i]                     <= '0;
                                 mshr_store_data[i]                     <= '0;
+                                mshr_word_offset[i]                    <= '0;
                                 mshr_lq_id[i]                          <= '0;
                                 mshr_is_load[i]                        <= 1'b0;
                                 mshr_install_done                       = 1'b1;
@@ -304,22 +419,37 @@ module l1_cache #(
                         curr_is_write    <= is_write;
                         curr_wdata       <= wdata;
                         curr_lq_id       <= lsq_lq_id_in;  // latch tag for response
+                        if (start_tag) begin
+                            pending_tag_valid <= 1'b1;
+                            pending_tlb_paddr <= tlb_paddr;
+                        end
                         state            <= 3'd1;
+                        tag_wait_streak  <= '0;
                     end
                 end
 
                 // -------------------------------------------------------------
                 3'd1: begin  // TAG WAIT (TLB result pending)
                 // -------------------------------------------------------------
-                    if (start_tag) begin
+                    if (start_tag || pending_tag_valid) begin
+                        tag_wait_streak <= '0;
+                        pending_tag_valid <= 1'b0;
                         if (hit) begin
                             // HIT
                             if (curr_is_write) begin
                                 set_contents[curr_index][hit_way]
                                     [curr_word_offset*DATA_WIDTH +: DATA_WIDTH] <= curr_wdata;
                                 set_dirty[curr_index][hit_way] <= 1'b1;
+                                sim_store_valid <= 1'b1;
+                                sim_store_paddr <= tag_paddr_mux;
+                                sim_store_data  <= curr_wdata;
                             end else begin
                                 // --- LSQ RESPONSE: load hit ---
+                                $display("[L1] load hit lq=%0d word=%0d data=0x%016h",
+                                         curr_lq_id,
+                                         curr_word_offset,
+                                         set_contents[curr_index][hit_way]
+                                             [curr_word_offset*DATA_WIDTH +: DATA_WIDTH]);
                                 lsq_resp_valid <= 1'b1;
                                 lsq_resp_lq_id <= curr_lq_id;
                                 lsq_resp_data  <=
@@ -346,24 +476,48 @@ module l1_cache #(
                                     mshr_store_data[mshr_dup_idx]
                                         [curr_word_offset*DATA_WIDTH +: DATA_WIDTH] <= curr_wdata;
                                     mshr_store_mask[mshr_dup_idx][curr_word_offset] <= 1'b1;
+                                    sim_store_valid <= 1'b1;
+                                    sim_store_paddr <= tag_paddr_mux;
+                                    sim_store_data  <= curr_wdata;
                                 end
                                 // For a duplicate load miss the lq_id of the
                                 // first miss wins — the second load will be
                                 // re-issued once the first broadcasts on CDB.
                             end else if (!mshr_full) begin
                                 // Fresh MSHR allocation
+                                $display("[L1] allocate mshr=%0d paddr=0x%08h load=%0b lq=%0d word=%0d",
+                                         mshr_free_idx,
+                                         incoming_line_paddr,
+                                         !curr_is_write,
+                                         curr_lq_id,
+                                         curr_word_offset);
                                 mshr_paddr[mshr_free_idx]    <= incoming_line_paddr;
                                 mshr_index[mshr_free_idx]    <= curr_index;
                                 mshr_state[mshr_free_idx]    <= MS_UNRESOLVED;
                                 mshr_lq_id[mshr_free_idx]    <= curr_lq_id;
                                 mshr_is_load[mshr_free_idx]  <= !curr_is_write;
+                                mshr_word_offset[mshr_free_idx] <= curr_word_offset;
                                 if (curr_is_write) begin
                                     mshr_store_data[mshr_free_idx]
                                         [curr_word_offset*DATA_WIDTH +: DATA_WIDTH] <= curr_wdata;
                                     mshr_store_mask[mshr_free_idx][curr_word_offset] <= 1'b1;
+                                    sim_store_valid <= 1'b1;
+                                    sim_store_paddr <= tag_paddr_mux;
+                                    sim_store_data  <= curr_wdata;
                                 end
                             end
                             state <= 3'd0;
+                        end
+                    end else begin
+                        tag_wait_streak <= tag_wait_streak + 1'b1;
+                        if (tag_wait_streak == 8'd32 || tag_wait_streak == 8'd128) begin
+                            $display("[L1] tag wait blocked streak=%0d index=%0d word=%0d write=%0b lq=%0d pending_tag=%0b",
+                                     tag_wait_streak,
+                                     curr_index,
+                                     curr_word_offset,
+                                     curr_is_write,
+                                     curr_lq_id,
+                                     pending_tag_valid);
                         end
                     end
                 end
@@ -374,8 +528,10 @@ module l1_cache #(
             // L2 DATA RETURN — mark matching MSHR as resolved
             // -----------------------------------------------------------------
             for (integer i = 0; i < NUM_MSHRS; i++)
-                if (mshr_state[i] == MS_UNRESOLVED
+                if (mshr_state[i] != MS_IDLE
                     && l2_data_valid && l2_data_paddr == mshr_paddr[i]) begin
+                    $display("[L1] l2 fill matched mshr=%0d paddr=0x%08h",
+                             i, l2_data_paddr);
                     mshr_block[i] <= l2_data;
                     mshr_state[i] <= MS_RESOLVED;
                 end

@@ -64,6 +64,8 @@ int main(int argc, char** argv) {
     bool     dmem_resp_pending  = false;
     uint32_t dmem_resp_paddr_r  = 0;
     uint8_t  dmem_resp_data[CACHE_LINE_BYTES] = {};
+    bool     ptw_resp_pending   = false;
+    uint64_t ptw_resp_data_r    = 0;
 
     // Track which 8-byte-aligned DRAM addresses were written back from L2
     std::set<uint64_t> written_addrs;
@@ -113,11 +115,20 @@ int main(int argc, char** argv) {
         } else {
             top->dmem_resp_valid = 0;
         }
+        top->ptw_req_ready = 1;
+        if (ptw_resp_pending) {
+            top->ptw_resp_valid = 1;
+            top->ptw_resp_data = ptw_resp_data_r;
+        } else {
+            top->ptw_resp_valid = 0;
+            top->ptw_resp_data = 0;
+        }
 
         top->eval();
 
         // After posedge: sample data memory request for next cycle
         dmem_resp_pending = false;
+        ptw_resp_pending = false;
         if (top->dmem_req_valid) {
             uint64_t paddr = (uint64_t)top->dmem_req_addr;
             if (top->dmem_req_is_write) {
@@ -137,6 +148,22 @@ int main(int argc, char** argv) {
                     memset(dmem_resp_data, 0, CACHE_LINE_BYTES);
                 dmem_resp_paddr_r = (uint32_t)paddr;
                 dmem_resp_pending = true;
+            }
+        }
+        if (top->ptw_req_valid) {
+            uint64_t paddr = (uint64_t)top->ptw_req_addr;
+            if (paddr + sizeof(uint64_t) <= DRAM_SPAN)
+                memcpy(&ptw_resp_data_r, &dram_shm[paddr], sizeof(uint64_t));
+            else
+                ptw_resp_data_r = 0;
+            ptw_resp_pending = true;
+        }
+        if (top->sim_store_valid) {
+            uint64_t paddr = (uint64_t)top->sim_store_paddr;
+            uint64_t data = (uint64_t)top->sim_store_data;
+            if (paddr + sizeof(uint64_t) <= DRAM_SPAN) {
+                memcpy(&dram_shm[paddr], &data, sizeof(uint64_t));
+                written_addrs.insert(paddr);
             }
         }
 
@@ -181,15 +208,15 @@ int main(int argc, char** argv) {
                 printf("\n");
             }
 
-            // Modified memory: only L2 writebacks reach dram_shm.
-            // Stores still resident in L1/L2 at program end will NOT appear here.
-            printf("\nModified Memory (L2 writebacks only):\n");
+            // Modified memory includes L2 writebacks and the simulation-only
+            // committed-store mirror used to keep page walks coherent.
+            printf("\nModified Memory (writebacks + committed stores, %zu words):\n",
+                   written_addrs.size());
             for (uint64_t addr : written_addrs) {
                 uint64_t val = *(uint64_t*)(&dram_shm[addr]);
-                if (val != 0)
-                    printf("0x%016llx: 0x%016llx\n",
-                           (unsigned long long)addr,
-                           (unsigned long long)val);
+                printf("0x%016llx: 0x%016llx\n",
+                       (unsigned long long)addr,
+                       (unsigned long long)val);
             }
             printf("================================================\n\n");
 
