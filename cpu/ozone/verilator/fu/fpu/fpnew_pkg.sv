@@ -357,6 +357,22 @@ package fpnew_pkg;
     return res;
   endfunction
 
+  function automatic int unsigned max_exp_bits(fmt_logic_t cfg);
+    automatic int unsigned res = 0;
+    for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++)
+      if (cfg[fmt])
+        res = $unsigned(maximum(res, exp_bits(fp_format_e'(fmt))));
+    return res;
+  endfunction
+
+  function automatic int unsigned max_man_bits(fmt_logic_t cfg);
+    automatic int unsigned res = 0;
+    for (int unsigned fmt = 0; fmt < NUM_FP_FORMATS; fmt++)
+      if (cfg[fmt])
+        res = $unsigned(maximum(res, man_bits(fp_format_e'(fmt))));
+    return res;
+  endfunction
+
   // -------------------------------------------
   // Helper functions for INT formats and values
   // -------------------------------------------

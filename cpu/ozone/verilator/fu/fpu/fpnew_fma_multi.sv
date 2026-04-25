@@ -72,10 +72,8 @@ module fpnew_fma_multi #(
   // Constants
   // ----------
   // The super-format that can hold all formats
-  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT = fpnew_pkg::super_format(FpFmtConfig);
-
-  localparam int unsigned SUPER_EXP_BITS = SUPER_FORMAT.exp_bits;
-  localparam int unsigned SUPER_MAN_BITS = SUPER_FORMAT.man_bits;
+  localparam int unsigned SUPER_EXP_BITS = fpnew_pkg::max_exp_bits(FpFmtConfig);
+  localparam int unsigned SUPER_MAN_BITS = fpnew_pkg::max_man_bits(FpFmtConfig);
 
   // Precision bits 'p' include the implicit bit
   localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
@@ -126,12 +124,12 @@ module fpnew_fma_multi #(
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][2:0][WIDTH-1:0]       inp_pipe_operands_q;
   logic                  [0:NUM_INP_REGS][NUM_FORMATS-1:0][2:0] inp_pipe_is_boxed_q;
-  fpnew_pkg::roundmode_e [0:NUM_INP_REGS]                       inp_pipe_rnd_mode_q;
-  fpnew_pkg::operation_e [0:NUM_INP_REGS]                       inp_pipe_op_q;
+  logic                  [0:NUM_INP_REGS][2:0]                  inp_pipe_rnd_mode_q;
+  logic                  [0:NUM_INP_REGS][fpnew_pkg::OP_BITS-1:0] inp_pipe_op_q;
   logic                  [0:NUM_INP_REGS]                       inp_pipe_op_mod_q;
-  fpnew_pkg::fp_format_e [0:NUM_INP_REGS]                       inp_pipe_src_fmt_q;
-  fpnew_pkg::fp_format_e [0:NUM_INP_REGS]                       inp_pipe_src2_fmt_q;
-  fpnew_pkg::fp_format_e [0:NUM_INP_REGS]                       inp_pipe_dst_fmt_q;
+  logic                  [0:NUM_INP_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] inp_pipe_src_fmt_q;
+  logic                  [0:NUM_INP_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] inp_pipe_src2_fmt_q;
+  logic                  [0:NUM_INP_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] inp_pipe_dst_fmt_q;
   logic [0:NUM_INP_REGS][TagWidth-1:0]                       inp_pipe_tag_q;
   logic                  [0:NUM_INP_REGS]                       inp_pipe_mask_q;
   logic [0:NUM_INP_REGS][AuxWidth-1:0]                       inp_pipe_aux_q;
@@ -560,8 +558,8 @@ module fpnew_fma_multi #(
   logic                  [0:NUM_MID_REGS]                         mid_pipe_sticky_q;
   logic                  [0:NUM_MID_REGS][3*PRECISION_BITS+3:0]   mid_pipe_sum_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_final_sign_q;
-  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                         mid_pipe_rnd_mode_q;
-  fpnew_pkg::fp_format_e [0:NUM_MID_REGS]                         mid_pipe_dst_fmt_q;
+  logic                  [0:NUM_MID_REGS][2:0]                    mid_pipe_rnd_mode_q;
+  logic                  [0:NUM_MID_REGS][fpnew_pkg::FP_FORMAT_BITS-1:0] mid_pipe_dst_fmt_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_res_is_spec_q;
   fp_t                   [0:NUM_MID_REGS]                         mid_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_MID_REGS]                         mid_pipe_spec_stat_q;

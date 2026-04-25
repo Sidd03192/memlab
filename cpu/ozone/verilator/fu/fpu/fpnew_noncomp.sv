@@ -96,8 +96,8 @@ module fpnew_noncomp #(
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][1:0][WIDTH-1:0] inp_pipe_operands_q;
   logic                  [0:NUM_INP_REGS][1:0]            inp_pipe_is_boxed_q;
-  fpnew_pkg::roundmode_e [0:NUM_INP_REGS]                 inp_pipe_rnd_mode_q;
-  fpnew_pkg::operation_e [0:NUM_INP_REGS]                 inp_pipe_op_q;
+  logic                  [0:NUM_INP_REGS][2:0]            inp_pipe_rnd_mode_q;
+  logic                  [0:NUM_INP_REGS][fpnew_pkg::OP_BITS-1:0] inp_pipe_op_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_op_mod_q;
   logic [0:NUM_INP_REGS][TagWidth-1:0]                 inp_pipe_tag_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_mask_q;
@@ -369,7 +369,7 @@ module fpnew_noncomp #(
   fp_t                   [0:NUM_OUT_REGS] out_pipe_result_q;
   fpnew_pkg::status_t    [0:NUM_OUT_REGS] out_pipe_status_q;
   logic                  [0:NUM_OUT_REGS] out_pipe_extension_bit_q;
-  fpnew_pkg::classmask_e [0:NUM_OUT_REGS] out_pipe_class_mask_q;
+  logic [0:NUM_OUT_REGS][9:0] out_pipe_class_mask_q;
   logic                  [0:NUM_OUT_REGS] out_pipe_is_class_q;
   logic [0:NUM_OUT_REGS][TagWidth-1:0] out_pipe_tag_q;
   logic                  [0:NUM_OUT_REGS] out_pipe_mask_q;
@@ -420,7 +420,7 @@ module fpnew_noncomp #(
   assign result_o        = out_pipe_result_q[NUM_OUT_REGS];
   assign status_o        = out_pipe_status_q[NUM_OUT_REGS];
   assign extension_bit_o = out_pipe_extension_bit_q[NUM_OUT_REGS];
-  assign class_mask_o    = out_pipe_class_mask_q[NUM_OUT_REGS];
+  assign class_mask_o    = fpnew_pkg::classmask_e'(out_pipe_class_mask_q[NUM_OUT_REGS]);
   assign is_class_o      = out_pipe_is_class_q[NUM_OUT_REGS];
   assign tag_o           = out_pipe_tag_q[NUM_OUT_REGS];
   assign mask_o          = out_pipe_mask_q[NUM_OUT_REGS];

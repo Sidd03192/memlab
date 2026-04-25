@@ -111,8 +111,8 @@ module fpnew_fma #(
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][2:0][WIDTH-1:0] inp_pipe_operands_q;
   logic                  [0:NUM_INP_REGS][2:0]            inp_pipe_is_boxed_q;
-  fpnew_pkg::roundmode_e [0:NUM_INP_REGS]                 inp_pipe_rnd_mode_q;
-  fpnew_pkg::operation_e [0:NUM_INP_REGS]                 inp_pipe_op_q;
+  logic                  [0:NUM_INP_REGS][2:0]            inp_pipe_rnd_mode_q;
+  logic                  [0:NUM_INP_REGS][fpnew_pkg::OP_BITS-1:0] inp_pipe_op_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_op_mod_q;
   logic [0:NUM_INP_REGS][TagWidth-1:0]                 inp_pipe_tag_q;
   logic                  [0:NUM_INP_REGS]                 inp_pipe_mask_q;
@@ -425,7 +425,7 @@ module fpnew_fma #(
   logic                  [0:NUM_MID_REGS]                         mid_pipe_sticky_q;
   logic                  [0:NUM_MID_REGS][3*PRECISION_BITS+3:0]   mid_pipe_sum_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_final_sign_q;
-  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                         mid_pipe_rnd_mode_q;
+  logic                  [0:NUM_MID_REGS][2:0]                    mid_pipe_rnd_mode_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_res_is_spec_q;
   fp_t                   [0:NUM_MID_REGS]                         mid_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_MID_REGS]                         mid_pipe_spec_stat_q;
@@ -496,7 +496,7 @@ module fpnew_fma #(
   assign sticky_before_add_q     = mid_pipe_sticky_q[NUM_MID_REGS];
   assign sum_q                   = mid_pipe_sum_q[NUM_MID_REGS];
   assign final_sign_q            = mid_pipe_final_sign_q[NUM_MID_REGS];
-  assign rnd_mode_q              = mid_pipe_rnd_mode_q[NUM_MID_REGS];
+  assign rnd_mode_q              = fpnew_pkg::roundmode_e'(mid_pipe_rnd_mode_q[NUM_MID_REGS]);
   assign result_is_special_q     = mid_pipe_res_is_spec_q[NUM_MID_REGS];
   assign special_result_q        = mid_pipe_spec_res_q[NUM_MID_REGS];
   assign special_status_q        = mid_pipe_spec_stat_q[NUM_MID_REGS];
