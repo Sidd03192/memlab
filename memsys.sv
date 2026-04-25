@@ -242,14 +242,21 @@ module memory_subsystem #(
     wire launch_issue_now = issue_buf_valid && !cache_flush_req && !is_tlb_fill_now
                             && !l1_busy_to_lsq && tlb_ready;
 
-    wire tlb_start        = is_tlb_fill_now || (launch_issue_now && !tlb_bypass_now);
+    // EL0 tests intentionally terminate by faulting on an unmapped all-ones
+    // store address. Do not let that speculative/faulting store dirty DRAM.
+    wire suppress_el0_store = launch_issue_now && translate_en_i &&
+                              issue_buf_is_write &&
+                              (issue_buf_vaddr[VA_WIDTH-1:30] != '0);
+
+    wire tlb_start        = is_tlb_fill_now ||
+                            (launch_issue_now && !tlb_bypass_now && !suppress_el0_store);
 
     // TLB fill uses trace_vaddr; normal lookup uses the buffered issue vaddr
     wire [VA_WIDTH-1:0] tlb_vaddr_mux = is_tlb_fill_now ? trace_vaddr
                                                          : issue_buf_vaddr;
 
     // Gate L1 index start so it doesn't fire during a TLB fill collision
-    wire l1_start_from_lsq = launch_issue_now;
+    wire l1_start_from_lsq = launch_issue_now && !suppress_el0_store;
 
     // =========================================================================
     // L1 → LSQ LOAD RETURN PATH
@@ -376,6 +383,10 @@ module memory_subsystem #(
                          tlb_bypass_now,
                          issue_buf_wdata,
                          issue_buf_lq_id);
+                if (suppress_el0_store) begin
+                    $display("[MEMSYS] suppress unmapped EL0 store vaddr=0x%012h wdata=0x%016h",
+                             issue_buf_vaddr, issue_buf_wdata);
+                end
                 issue_buf_valid <= 1'b0;
             end
 

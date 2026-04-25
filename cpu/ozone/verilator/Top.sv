@@ -5,6 +5,7 @@ module Top
 (
     input clk,
     input reset,
+    input logic [63:0] start_pc,
 
     // Simple Memory Interface (instruction fetch)
     output reg [63:0] mem_addr,
@@ -46,10 +47,7 @@ module Top
     // Set back to 1'b1 when the real ITLB/MMU fetch path is ready for
     // submission/integration.
     localparam logic USE_ITLB_FETCH = 1'b0;
-    // Run the normal Ozone boot flow from the reset vector so EL1 can seed
-    // SP/TTBR0/page-table state before userspace memory ops execute.
-    localparam logic USE_STANDALONE_ENTRY_PC = 1'b0;
-    localparam logic [47:0] STANDALONE_ENTRY_PC = 48'h0000_0040_0000;
+    localparam logic [47:0] DEFAULT_ENTRY_PC = 48'h0000_2000_0000;
     // Matches memlab/cpu/ozone/ozone-config.json for Verilator runs.
     localparam logic [29:0] SIM_TTBR0_BASE = 30'h00001000;
     localparam logic [63:0] SIM_SP_EL0 = 64'h0000_0000_0040_f000;
@@ -479,8 +477,8 @@ module Top
             state           <= 0;
             done            <= 0;
             sim_finish_pending <= 1'b0;
-            pc              <= USE_STANDALONE_ENTRY_PC ? STANDALONE_ENTRY_PC
-                                                       : 48'h20000000;
+            pc              <= (start_pc != 64'b0) ? start_pc[47:0]
+                                                   : DEFAULT_ENTRY_PC;
             pa_pc           <= '0;
             ttbr0           <= SIM_TTBR0_BASE[29:12];
             cur_el          <= 2'd1;

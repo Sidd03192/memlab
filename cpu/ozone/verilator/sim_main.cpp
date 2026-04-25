@@ -11,6 +11,10 @@
 
 #define DRAM_SPAN 0x40000000ULL // 1GB
 #define CSR_SPAN  0x00200000ULL // 2MB
+#define RESET_VECTOR 0x20000000ULL
+#define USER_TEXT_BASE 0x00400000ULL
+#define USER_TEXT_SCAN_BYTES 0x00010000ULL
+#define RET_X30_INSN 0xd65f03c0U
 
 // Cache line size must match BLOCK_SIZE parameter in memory_subsystem (64 bytes)
 #define CACHE_LINE_BYTES 64
@@ -30,6 +34,41 @@ static void print_fpr(int idx, uint64_t val) {
         printf("V%-2d: 0x%016llx", idx, (unsigned long long)val);
     else
         printf("V%d: 0x%016llx", idx, (unsigned long long)val);
+}
+
+static uint32_t dram_read32(uint8_t* dram, uint64_t addr) {
+    if (addr + sizeof(uint32_t) > DRAM_SPAN)
+        return 0;
+    uint32_t value = 0;
+    memcpy(&value, &dram[addr], sizeof(value));
+    return value;
+}
+
+static uint64_t infer_start_pc(uint8_t* dram, uint64_t csr_entry_pc) {
+    if (csr_entry_pc != 0)
+        return csr_entry_pc;
+
+    // Standalone images link a tiny shim after userspace:
+    //   b userspace_entry
+    //   ret
+    // Use it when present so tests start at the ELF entry without touching the
+    // host-side loader in src/.
+    for (uint64_t pc = USER_TEXT_BASE;
+         pc + 8 < USER_TEXT_BASE + USER_TEXT_SCAN_BYTES;
+         pc += 4) {
+        uint32_t branch = dram_read32(dram, pc);
+        uint32_t next   = dram_read32(dram, pc + 4);
+        if ((branch & 0xfc000000U) == 0x14000000U && next == RET_X30_INSN) {
+            int32_t imm26 = (int32_t)(branch & 0x03ffffffU);
+            if (imm26 & 0x02000000U)
+                imm26 |= (int32_t)0xfc000000U;
+            uint64_t target = pc + ((int64_t)imm26 << 2);
+            if (target == USER_TEXT_BASE)
+                return pc;
+        }
+    }
+
+    return RESET_VECTOR;
 }
 
 int main(int argc, char** argv) {
@@ -72,6 +111,7 @@ int main(int argc, char** argv) {
 
     while (!Verilated::gotFinish()) {
         uint32_t host_reset = *(volatile uint32_t*)(csr_shm + 0x0);
+        top->start_pc = infer_start_pc(dram_shm, *(volatile uint64_t*)(csr_shm + 0x10));
 
         if (run_complete) {
             if (host_reset) {
