@@ -534,7 +534,12 @@ end
 
 // ─── FSM ──────────────────────────────────────────────────────────────────
 always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n || flush) begin
+    if (!rst_n) begin
+        // Asynchronous reset
+        state        <= DS_IDLE;
+        pending_uop1 <= '0;
+    end else if (flush) begin
+        // Synchronous flush
         state        <= DS_IDLE;
         pending_uop1 <= '0;
     end else begin
