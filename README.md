@@ -1,4 +1,4 @@
-# Ozone (Out-Of-Order) Processor for UT CS 350C Spring 2026
+# Ozone (Out-Of-Order) Processor + Memory Subsystem
 
 ## Members
 - Siddharth Potta (@Sidd03192)
